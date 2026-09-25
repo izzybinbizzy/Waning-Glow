@@ -66,36 +66,33 @@ namespace Plugin
 
 		void Tip(const char* a_text) { ImGuiMCP::SetItemTooltip("%s", a_text); }
 
-		// a checkbox bound to a setting; saves on change
-		void Toggle(const char* a_label, bool& a_value, const char* a_tip)
+		// The settings page edits a copy of the settings (Config), which goes back whole when anything changed (SetConfig):
+		// the main thread reads them every frame, so the shared copy is never written half-way. A switch or a choice saves
+		// the file at once; a slider when it is let go.
+		void Toggle(const char* a_label, bool& a_value, const char* a_tip, bool& a_save)
 		{
-			bool v = a_value;
-			if (ImGuiMCP::Checkbox(a_label, &v)) {
-				a_value = v;
-				SaveSettings();
-			}
+			a_save |= ImGuiMCP::Checkbox(a_label, &a_value);
 			Tip(a_tip);
 		}
 
-		// a percent slider over a 0..1 (or more) float; saves when the drag ends
-		void Percent(const char* a_label, float& a_value, int a_lo, int a_hi, const char* a_tip)
+		// a percent slider over a 0..1 (or more) float
+		void Percent(const char* a_label, float& a_value, int a_lo, int a_hi, const char* a_tip, bool& a_save)
 		{
 			int v = static_cast<int>(std::lround(a_value * 100.0f));
 			if (ImGuiMCP::SliderInt(a_label, &v, a_lo, a_hi, "%d%%")) {
 				a_value = static_cast<float>(std::clamp(v, a_lo, a_hi)) / 100.0f;
 			}
-			if (ImGuiMCP::IsItemDeactivatedAfterEdit()) {
-				SaveSettings();
-			}
+			a_save |= ImGuiMCP::IsItemDeactivatedAfterEdit();
 			Tip(a_tip);
 		}
 
-		void Choice(const char* a_label, int& a_value, const char* const* a_items, int a_count, const char* a_tip)
+		template <class E>
+		void Choice(const char* a_label, E& a_value, const char* const* a_items, int a_count, const char* a_tip, bool& a_save)
 		{
-			int v = a_value;
+			int v = static_cast<int>(a_value);
 			if (ImGuiMCP::Combo(a_label, &v, a_items, a_count)) {
-				a_value = std::clamp(v, 0, a_count - 1);
-				SaveSettings();
+				a_value = static_cast<E>(std::clamp(v, 0, a_count - 1));
+				a_save = true;
 			}
 			Tip(a_tip);
 		}
@@ -103,73 +100,77 @@ namespace Plugin
 		void __stdcall RenderSettings()
 		{
 			const GlowStyle style;
-			auto&           s = Config();
+			const Settings  before = Config();
+			Settings        s = before;
 			auto&           t = s.tuning;
+			bool            save = false;
 
-			Toggle("Enabled", s.enabled, "Off: every weapon light is put back exactly as the other mods set it.");
+			Toggle("Enabled", s.enabled, "Off: every weapon light is put back exactly as the other mods set it.", save);
 
 			GlowHeading("Fading");
 			Percent("Brightness when empty", t.floor, 0, 50,
 				"What is left of the light at 0% charge. 0% puts it out; 10% (the default) keeps a faint glow so you can "
-				"tell the weapon is enchanted but spent.");
+				"tell the weapon is enchanted but spent.",
+				save);
 			{
 				static const char* const kCurves[] = { "Linear", "Gentle - stays bright longer", "Steep - drops early" };
-				int                      c = static_cast<int>(t.curve);
-				Choice("Curve", c, kCurves, 3,
-					"How the light falls as the charge falls. Gentle holds most of its brightness until the charge is low.");
-				t.curve = static_cast<Glow::Curve>(c);
+				Choice("Curve", t.curve, kCurves, 3, "How the light falls as the charge falls. Gentle holds most of its brightness until the charge is low.",
+					save);
 			}
 			Percent("Reach follows", t.reachFollows, 0, 100,
-				"How much the light's reach shrinks along with its brightness. 0%: only the brightness changes.");
+				"How much the light's reach shrinks along with its brightness. 0%: only the brightness changes.", save);
 
 			GlowHeading("Nearly empty");
-			Toggle("Sputter", t.sputter, "Below the level set here, the light sputters: short, irregular dips, deeper toward empty.");
-			Percent("Sputter below", t.sputterBelow, 1, 50, "The charge level where the sputter starts.");
-			Percent("Sputter strength", t.sputterStrength, 0, 100, "How deep the deepest dip goes, at empty.");
-			Toggle("Hold still when empty", t.emptySteady, "At exactly 0% charge the light stops sputtering and holds at its empty brightness.");
-			Toggle("Colour cooling", t.cool, "Below the sputter level the light's colour drains toward grey or a dull ember.");
-			Percent("Cooling amount", t.coolAmount, 0, 100, "How far the colour moves at empty.");
+			Toggle("Sputter", t.sputter, "Below the level set here, the light sputters: short, irregular dips, deeper toward empty.", save);
+			Percent("Sputter below", t.sputterBelow, 1, 50, "The charge level where the sputter starts.", save);
+			Percent("Sputter strength", t.sputterStrength, 0, 100, "How deep the deepest dip goes, at empty.", save);
+			Toggle("Hold still when empty", t.emptySteady, "At exactly 0% charge the light stops sputtering and holds at its empty brightness.", save);
+			Toggle("Colour cooling", t.cool, "Below the sputter level the light's colour drains toward grey or a dull ember.", save);
+			Percent("Cooling amount", t.coolAmount, 0, 100, "How far the colour moves at empty.", save);
 			{
 				static const char* const kTints[] = { "Grey", "Ember" };
-				int                      c = static_cast<int>(t.coolTint);
-				Choice("Cools toward", c, kTints, 2, "Grey: the colour drains out. Ember: it turns a dull orange, like a dying fire.");
-				t.coolTint = static_cast<Glow::CoolTint>(c);
+				Choice("Cools toward", t.coolTint, kTints, 2, "Grey: the colour drains out. Ember: it turns a dull orange, like a dying fire.", save);
 			}
 
 			GlowHeading("Moments");
-			Toggle("Hit pulse", t.pulse, "A quick flash when a hit spends charge.");
-			Percent("Pulse strength", t.pulseStrength, 0, 200, "How bright the flash is, over the light's level at the time.");
-			Toggle("Recharge flare", t.flare, "When a soul gem refills the weapon, the light swells past full and settles.");
-			Percent("Flare strength", t.flareStrength, 0, 200, "How far past full the swell goes.");
+			Toggle("Hit pulse", t.pulse, "A quick flash when a hit spends charge.", save);
+			Percent("Pulse strength", t.pulseStrength, 0, 200, "How bright the flash is, over the light's level at the time.", save);
+			Toggle("Recharge flare", t.flare, "When a soul gem refills the weapon, the light swells past full and settles.", save);
+			Percent("Flare strength", t.flareStrength, 0, 200, "How far past full the swell goes.", save);
 
 			GlowHeading("Which weapons");
-			Toggle("Staves", s.staves, "Staves' lights follow their charge too.");
+			Toggle("Staves", s.staves, "Staves' lights follow their charge too.", save);
 			Toggle("Bound weapons", s.bound,
-				"A bound weapon has no charge: its light stays full, then fades over the last seconds of its spell.");
+				"A bound weapon has no charge: its light stays full, then fades over the last seconds of its spell.", save);
 			{
 				int secs = static_cast<int>(s.boundFadeSeconds);
 				if (ImGuiMCP::SliderInt("Bound fade", &secs, 1, 60, "last %d s")) {
 					s.boundFadeSeconds = static_cast<float>(std::clamp(secs, 1, 60));
 				}
-				if (ImGuiMCP::IsItemDeactivatedAfterEdit()) {
-					SaveSettings();
-				}
+				save |= ImGuiMCP::IsItemDeactivatedAfterEdit();
 				Tip("Over how many of the spell's last seconds a bound weapon's light fades.");
 			}
 			{
 				static const char* const kWho[] = { "Player", "Player and followers" };
-				int                      w = static_cast<int>(s.who);
-				Choice("Whose weapons", w, kWho, 2,
+				Choice("Whose weapons", s.who, kWho, 2,
 					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
-					"makes them spend it.");
-				s.who = static_cast<Who>(w);
+					"makes them spend it.",
+					save);
 			}
 
 			GlowHeading("Experimental");
 			Toggle("Dim the enchantment glow too", s.dimShader,
 				"The glowing shader on the blade follows the charge as well as the lights. Untested in game: turn it off "
-				"if an enchantment's glow looks wrong.");
-			Toggle("Debug log", s.debugLog, "Writes each tracked weapon, rule match, pulse and flare to WaningGlow.log.");
+				"if an enchantment's glow looks wrong.",
+				save);
+			Toggle("Debug log", s.debugLog, "Writes each tracked weapon, rule match, pulse and flare to WaningGlow.log.", save);
+
+			if (s != before) {
+				SetConfig(s);
+			}
+			if (save) {
+				SaveSettings();
+			}
 		}
 
 		void __stdcall RenderDebug()
@@ -179,12 +180,15 @@ namespace Plugin
 
 			GlowHeading("Preview");
 			auto& preview = PreviewState();
-			ImGuiMCP::Checkbox("Pretend the charge is", &preview.on);
+			bool  on = preview.on;
+			if (ImGuiMCP::Checkbox("Pretend the charge is", &on)) {
+				preview.on = on;
+			}
 			Tip("Every tracked weapon shows this charge instead of its own, to see the fade, sputter and cooling without "
 				"fighting. Not saved: it switches off when the game restarts.");
 			ImGuiMCP::SameLine();
 			{
-				int v = static_cast<int>(std::lround(preview.fraction * 100.0f));
+				int v = static_cast<int>(std::lround(preview.fraction.load() * 100.0f));
 				ImGuiMCP::SetNextItemWidth(180.0f);
 				if (ImGuiMCP::SliderInt("##previewCharge", &v, 0, 100, "%d%%")) {
 					preview.fraction = static_cast<float>(std::clamp(v, 0, 100)) / 100.0f;

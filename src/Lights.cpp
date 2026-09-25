@@ -32,7 +32,7 @@ namespace Plugin
 
 		struct ColorKeep
 		{
-			RE::NiColor base{}, written{ -1.0f, -1.0f, -1.0f };
+			RE::NiColor base{}, written{};  // written: what we wrote last (meaningful once `touched`)
 			bool        touched{ false };
 
 			[[nodiscard]] static bool Same(const RE::NiColor& a, const RE::NiColor& b) noexcept
@@ -57,7 +57,7 @@ namespace Plugin
 
 		struct LightSeen
 		{
-			RE::NiPointer<RE::NiLight> light;
+			RE::NiPointer<RE::NiPointLight> light;
 			Glow::Scaled               fade, radius;
 			ColorKeep                  color;
 			std::uint32_t              frame{ 0 };
@@ -98,7 +98,7 @@ namespace Plugin
 		std::mutex                                     gLock;  // the player update and the effect hooks may be on different threads
 		std::uint32_t                                  gFrame = 1;
 		std::unordered_map<std::uint64_t, HandTrack>   gHands;
-		std::unordered_map<RE::NiLight*, LightSeen>    gLights;
+		std::unordered_map<RE::NiPointLight*, LightSeen> gLights;
 		std::unordered_map<const void*, ShaderSeen>    gShaders;
 		// how many hands are active, read without the lock by the effect hooks: every art and shader effect in the world
 		// calls them each frame, and with no enchanted weapon out they need not look up (RTTI) whose effect it is
@@ -145,7 +145,7 @@ namespace Plugin
 			auto&       data = a_light->GetLightRuntimeData();
 			const auto& t = a_hand.verdict.tuning;
 			data.fade = seen.fade.Apply(data.fade, a_hand.out.brightness);
-			if (t.reachFollows > 0.0f || seen.radius.written >= 0.0f) {
+			if (t.reachFollows > 0.0f || seen.radius.Written()) {
 				const float r = seen.radius.Apply(data.radius.x, a_hand.out.reach);
 				data.radius.x = r;  // x and y are the reach, z is the size
 				data.radius.y = r;
@@ -162,7 +162,7 @@ namespace Plugin
 			}
 			auto& data = a_seen.light->GetLightRuntimeData();
 			data.fade = a_seen.fade.Restore(data.fade);
-			if (a_seen.radius.written >= 0.0f) {
+			if (a_seen.radius.Written()) {
 				const float r = a_seen.radius.Restore(data.radius.x);
 				data.radius.x = r;
 				data.radius.y = r;
@@ -218,14 +218,14 @@ namespace Plugin
 			}
 		}
 
-		std::vector<RE::NiPointer<RE::Actor>> Actors()
+		std::vector<RE::NiPointer<RE::Actor>> Actors(Who a_who)
 		{
 			std::vector<RE::NiPointer<RE::Actor>> out;
 			auto*                                 player = RE::PlayerCharacter::GetSingleton();
 			if (player && player->Is3DLoaded()) {
 				out.emplace_back(player);
 			}
-			if (Config().who == Who::kPlayerAndFollowers) {
+			if (a_who == Who::kPlayerAndFollowers) {
 				if (auto* lists = RE::ProcessLists::GetSingleton()) {
 					for (auto& handle : lists->highActorHandles) {
 						auto actor = handle.get();
@@ -326,7 +326,7 @@ namespace Plugin
 	{
 		std::lock_guard lock(gLock);
 		++gFrame;
-		const auto& s = Config();
+		const Settings s = Config();  // one copy for the frame
 		if (!s.enabled) {
 			for (auto& [light, seen] : gLights) {
 				RestoreLight(seen);
@@ -343,7 +343,7 @@ namespace Plugin
 		auto&      preview = PreviewState();
 		const bool pulseNow = preview.pulse.exchange(false);
 		const bool flareNow = preview.flare.exchange(false);
-		for (auto& actor : Actors()) {
+		for (auto& actor : Actors(s.who)) {
 			for (const bool left : { false, true }) {
 				auto& h = gHands[Key(actor->GetHandle(), left)];
 				h.actor = actor->GetHandle();
@@ -401,6 +401,13 @@ namespace Plugin
 				ApplyHand(actor.get(), h);
 			}
 		}
+		// a hand not read this frame (a follower dismissed, an actor unloaded) is no longer active: the effect hooks must not
+		// keep putting last frame's numbers on its lights
+		for (auto& [key, hand] : gHands) {
+			if (hand.frame != gFrame) {
+				hand.active = false;
+			}
+		}
 		Sweep();
 		gActiveHands = static_cast<std::size_t>(std::ranges::count_if(gHands, [](const auto& kv) { return kv.second.active; }));
 	}
@@ -443,7 +450,8 @@ namespace Plugin
 
 	void AfterShaderEffect(RE::ShaderReferenceEffect* a_effect)
 	{
-		if (!Config().dimShader || gActiveHands.load(std::memory_order_relaxed) == 0) {
+		// the cheap test first: every effect shader in the loaded world comes through here every frame
+		if (gActiveHands.load(std::memory_order_relaxed) == 0 || !Config().dimShader) {
 			return;
 		}
 		RE::Actor*      actor = nullptr;
@@ -482,7 +490,7 @@ namespace Plugin
 			}
 			const auto it = gHands.find(seen.hand);
 			if (it != gHands.end() && it->second.active) {
-				ApplyLight(static_cast<RE::NiPointLight*>(light), it->second);
+				ApplyLight(light, it->second);
 			}
 		}
 	}

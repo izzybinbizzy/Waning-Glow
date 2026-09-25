@@ -16,7 +16,8 @@
 //   Charge.cpp     what a hand holds and how full it is
 //   Lights.cpp     the lights on a weapon, found and scaled every frame
 //   Rules.cpp      rule files: Data\SKSE\Plugins\WaningGlow\*.json (docs/RULES.md)
-//   Settings.cpp   the settings file, Data\SKSE\Plugins\WaningGlow.ini
+//   SettingsText.h the settings and their file's lines, as plain text - tests/test_glow.cpp
+//   Settings.cpp   the settings file, Data\SKSE\Plugins\WaningGlow.ini, and the one shared copy
 //   EditorIDs.cpp  editor IDs the game throws away, recorded for the rule files
 //   Menu.cpp       the settings and debug pages, in SKSE Menu Framework's Mod Control Panel
 //   API.cpp        what other plugins can ask (include/WaningGlowAPI.h)
@@ -150,8 +151,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 			OnDataLoaded();
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
-			// the weapons about to load are new copies: forget the old ones, putting their lights back first
+		case SKSE::MessagingInterface::kNewGame:
+			// the weapons about to load (or a new game's) are new copies: forget the old ones, putting their lights back
+			// first, and the rule matches of enchantments made in play
 			Plugin::ReleaseAll();
+			Plugin::ForgetRuleMatches();
 			break;
 		default:
 			break;

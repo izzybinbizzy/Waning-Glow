@@ -54,6 +54,8 @@ namespace Glow
 		CoolTint coolTint{ CoolTint::kEmber };
 		float    fallSeconds{ 0.15f };    // how fast the shown level follows a drop
 		float    riseSeconds{ 0.35f };    // and a rise
+
+		bool operator==(const Tuning&) const = default;
 	};
 
 	[[nodiscard]] inline float Clamp01(float a_v) noexcept { return std::clamp(a_v, 0.0f, 1.0f); }
@@ -119,7 +121,6 @@ namespace Glow
 		float stepAge{ 0.0f }, stepLength{ 0.0f }, stepLevel{ 1.0f };
 		Rng   rng{};
 
-		// a new weapon (or none): no pulse, no flare, the level jumps straight to the new fraction
 		// the menu's preview buttons: the same pulse a spending hit starts, the same flare a refill starts
 		void TriggerPulse(const Tuning& a_t) noexcept
 		{
@@ -128,6 +129,7 @@ namespace Glow
 		}
 		void TriggerFlare() noexcept { flareAge = 0.0f; }
 
+		// a new weapon (or none): no pulse, no flare, the level jumps straight to the new fraction
 		void Reset(float a_fraction, std::uint32_t a_seed) noexcept
 		{
 			shown = a_fraction;
@@ -166,8 +168,10 @@ namespace Glow
 	[[nodiscard]] inline Output Step(const Tuning& a_t, Hand& a_h, float a_fraction, float a_dt) noexcept
 	{
 		Output out;
-		a_fraction = Clamp01(a_fraction);
-		a_dt = std::clamp(a_dt, 0.0f, 0.25f);
+		// a NaN would pass through std::clamp and stay in the hand's eased level for good: a fraction the game could not
+		// give counts as full (no dimming), a frame time it could not give as no time
+		a_fraction = std::isfinite(a_fraction) ? Clamp01(a_fraction) : 1.0f;
+		a_dt = std::isfinite(a_dt) ? std::clamp(a_dt, 0.0f, 0.25f) : 0.0f;
 		if (a_h.shown < 0.0f) {
 			a_h.Reset(a_fraction, a_h.rng.state);
 		}
@@ -273,7 +277,8 @@ namespace Glow
 	struct Scaled
 	{
 		float base{ 0.0f };
-		float written{ -1.0f };
+		float written{ 0.0f };      // what we wrote last (meaningful once `touched`)
+		bool  touched{ false };     // we have written this value (a value may be negative: a darkness light's fade)
 		float driftFrom{ 0.0f };  // the base when the current run of steady drift began
 		float lastRatio{ 1.0f };
 		int   drift{ 0 };  // consecutive frames the base moved by about the same ratio
@@ -283,9 +288,8 @@ namespace Glow
 
 		[[nodiscard]] float Apply(float a_current, float a_factor) noexcept
 		{
-			if (a_current != written) {
-				const bool first = written < 0.0f;
-				if (first) {
+			if (!touched || a_current != written) {
+				if (!touched) {
 					base = a_current;
 				} else if (!frozen) {
 					const float ratio = base > 0.0f ? a_current / base : 1.0f;
@@ -306,10 +310,13 @@ namespace Glow
 			}
 			const float v = base * a_factor;
 			written = v;
+			touched = true;
 			return v;
 		}
 
+		[[nodiscard]] bool Written() const noexcept { return touched; }
+
 		// what to put back when we let go: our base if the value still holds our write, else leave it
-		[[nodiscard]] float Restore(float a_current) const noexcept { return a_current == written ? base : a_current; }
+		[[nodiscard]] float Restore(float a_current) const noexcept { return touched && a_current == written ? base : a_current; }
 	};
 }

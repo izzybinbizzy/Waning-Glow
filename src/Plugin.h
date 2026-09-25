@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Glow.h"
+#include "SettingsText.h"
 
 namespace Plugin
 {
@@ -21,38 +22,31 @@ namespace Plugin
 
 	[[nodiscard]] std::string Lower(std::string_view a_text);
 
-	// ------------------------------------------------------------------ Settings.cpp: the settings file
-	enum class Who : int
+	// A path as UTF-8 text. path::string() converts to the ANSI code page on Windows and THROWS for a name that code
+	// page cannot show (a Japanese file name on a Western system); this cannot.
+	[[nodiscard]] inline std::string PathText(const std::filesystem::path& a_path)
 	{
-		kPlayer = 0,
-		kPlayerAndFollowers = 1
-	};
+		const auto u = a_path.generic_u8string();
+		return std::string(u.begin(), u.end());
+	}
 
-	struct Settings
-	{
-		bool         enabled{ true };
-		Glow::Tuning tuning{};
-		Who          who{ Who::kPlayer };
-		bool         staves{ true };
-		bool         bound{ true };
-		float        boundFadeSeconds{ 10.0f };
-		bool         dimShader{ false };  // experimental: the enchantment's glow shader follows the charge too
-		bool         debugLog{ false };
-	};
+	// ------------------------------------------------------------------ Settings.cpp: the settings (SettingsText.h)
+	// The one shared copy lives in Settings.cpp behind a lock: the menu (render thread) and DevBench (its own thread)
+	// change it while the main thread reads it every frame, so everyone works on a copy.
+	[[nodiscard]] Settings Config();                             // a copy, safe from any thread
+	void                   SetConfig(const Settings& a_settings);  // replaces it whole; live on the next frame
+	bool                   ApplySetting(std::string_view a_key, int a_value);  // one WaningGlow.ini line; false if unknown
+	void                   LoadSettings();
+	void                   SaveSettings();
 
-	// the Debug page's preview: never saved. The menu sets it; the next frame reads it.
+	// the Debug page's preview: never saved. The menu (or DevBench) sets it; the next frame reads it.
 	struct Preview
 	{
-		bool              on{ false };
-		float             fraction{ 0.5f };  // every tracked hand shows this charge instead of its own
-		std::atomic<bool> pulse{ false }, flare{ false };  // one-shot: start a pulse / flare on every tracked hand
+		std::atomic<bool>  on{ false };
+		std::atomic<float> fraction{ 0.5f };               // every tracked hand shows this charge instead of its own
+		std::atomic<bool>  pulse{ false }, flare{ false };  // one-shot: start a pulse / flare on every tracked hand
 	};
 	[[nodiscard]] Preview& PreviewState();
-
-	[[nodiscard]] Settings& Config();  // main thread and menu thread; see the note in Settings.cpp
-	void                    LoadSettings();
-	bool                    ApplySetting(std::string_view a_key, int a_value);  // one WaningGlow.ini line; false if unknown
-	void                    SaveSettings();
 
 	// ------------------------------------------------------------------ EditorIDs.cpp: names the game throws away
 	void                           InstallEditorIDHooks();  // at plugin load, before the game reads its plugins
@@ -77,6 +71,7 @@ namespace Plugin
 
 	void                                          LoadRules();  // at data load, after the settings
 	[[nodiscard]] Verdict                         Judge(const RE::TESObjectWEAP* a_weapon, const RE::EnchantmentItem* a_ench);
+	void                                          ForgetRuleMatches();  // a game loads: the forms made in play are new ones
 	[[nodiscard]] std::size_t                     RuleCount();
 	[[nodiscard]] std::size_t                     RuleFileCount();
 	[[nodiscard]] std::vector<std::string>        RuleProblems();  // a copy: the menu reads it while a reload may run

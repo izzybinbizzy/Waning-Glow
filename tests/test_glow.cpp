@@ -1,4 +1,4 @@
-// Waning Glow - tests for src/Glow.h and src/FormText.h (no game needed).
+// Waning Glow - tests for src/Glow.h, src/FormText.h and src/SettingsText.h (no game needed).
 // Copyright (C) 2026 izzydoingit. GPL-3.0-or-later.
 //
 // Build and run on any C++20 compiler:
@@ -7,9 +7,13 @@
 
 #include "FormText.h"
 #include "Glow.h"
+#include "SettingsText.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
+#include <sstream>
 
 namespace
 {
@@ -321,6 +325,114 @@ namespace
 		CHECK(FormText::LocalID(0x0104E4EE, false) == 0x04E4EE);  // a load-order prefix is dropped
 		CHECK(FormText::LocalID(0xFE012345, true) == 0x345);      // a light plugin keeps 12 bits
 	}
+	// a NaN from the game (a charge read as NaN, a broken frame time) must not stick in the hand's eased level
+	void NaNNeverSticks()
+	{
+		Glow::Tuning t;
+		Glow::Hand   h;
+		(void)Glow::Step(t, h, 0.5f, 1.0f / 60.0f);
+		const auto a = Glow::Step(t, h, std::nanf(""), 1.0f / 60.0f);
+		CHECK(std::isfinite(a.brightness) && std::isfinite(a.reach) && std::isfinite(a.cool));
+		const auto b = Glow::Step(t, h, 0.5f, std::nanf(""));
+		CHECK(std::isfinite(b.brightness));
+		const auto c = Run(t, h, 0.5f, 2.0f);  // and the next real frames settle where they would have
+		Glow::Hand clean;
+		const auto d = Run(t, clean, 0.5f, 2.0f);
+		CHECK(Near(c.reach, d.reach, 1e-3f));
+	}
+
+	// a darkness light's fade is negative: it must be scaled and put back like any other
+	void ScaledHandlesNegativeValues()
+	{
+		Glow::Scaled s;
+		CHECK(!s.Written());
+		CHECK(Near(s.Apply(-2.0f, 0.5f), -1.0f));
+		CHECK(s.Written());
+		CHECK(Near(s.Apply(-1.0f, 0.5f), -1.0f));  // our own write read back: the base stays -2
+		CHECK(Near(s.base, -2.0f));
+		CHECK(Near(s.Restore(-1.0f), -2.0f));
+		CHECK(Near(s.Apply(-3.0f, 0.5f), -1.5f));  // the owner set it again: a new base
+		CHECK(Near(s.Restore(-7.0f), -7.0f));      // someone else's write is left alone
+		Glow::Scaled never;
+		CHECK(Near(never.Restore(0.0f), 0.0f));    // never written: nothing to put back, even for 0
+	}
+
+	int Taken(const std::string& a_text, Plugin::Settings& a_s, std::size_t* a_problems = nullptr)
+	{
+		std::istringstream in(a_text);
+		const auto         r = Plugin::SettingsText::Read(in, a_s);
+		if (a_problems) {
+			*a_problems = r.problems.size();
+		}
+		return r.taken;
+	}
+
+	void SettingsFile()
+	{
+		using Plugin::Settings;
+		{
+			// defaults round-trip, and every value changed round-trips
+			Settings           d;
+			std::ostringstream out;
+			Plugin::SettingsText::Write(out, d);
+			Settings back;
+			back.enabled = false;
+			CHECK(Taken(out.str(), back) == static_cast<int>(std::size(Plugin::SettingsText::kKeys)));
+			CHECK(back == d);
+			Settings c;
+			c.enabled = false;
+			c.tuning.floor = 0.25f;
+			c.tuning.curve = Glow::Curve::kSteep;
+			c.tuning.sputterBelow = 0.3f;
+			c.tuning.coolTint = Glow::CoolTint::kGrey;
+			c.who = Plugin::Who::kPlayerAndFollowers;
+			c.boundFadeSeconds = 42.0f;
+			c.dimShader = true;
+			std::ostringstream out2;
+			Plugin::SettingsText::Write(out2, c);
+			Settings back2;
+			Taken(out2.str(), back2);
+			CHECK(back2 == c);
+		}
+		{
+			// as people edit it: Notepad's byte order mark, Windows line ends, any case, spaces, trailing comments
+			Settings    s;
+			std::size_t problems = 0;
+			const int   n = Taken("\xEF\xBB\xBF[settings]\r\n  enabled = 0 ; off for now\r\nEMPTYBRIGHTNESS=20\r\nCurve=2 # steep\r\n", s, &problems);
+			CHECK(n == 3 && problems == 0);
+			CHECK(!s.enabled && Near(s.tuning.floor, 0.2f) && s.tuning.curve == Glow::Curve::kSteep);
+		}
+		{
+			// what cannot be used keeps the default and is reported: junk after a number, a fraction, an unknown key, another section
+			Settings    s;
+			std::size_t problems = 0;
+			const int   n = Taken("[Settings]\nSputterBelow=15abc\nCurve=1.5\nNoSuchKey=1\nHitPulse=0\n[Other]\nEnabled=0\n", s, &problems);
+			CHECK(n == 1 && problems == 3);
+			CHECK(Near(s.tuning.sputterBelow, Glow::Tuning{}.sputterBelow) && s.tuning.curve == Glow::Tuning{}.curve);
+			CHECK(!s.tuning.pulse && s.enabled);
+		}
+		{
+			// clamped to what the menu allows
+			Settings s;
+			Taken("[Settings]\nEmptyBrightness=90\nSputterBelow=0\nBoundFadeSeconds=999\nWho=7\nCurve=-4\n", s);
+			CHECK(Near(s.tuning.floor, 0.5f) && Near(s.tuning.sputterBelow, 0.01f) && Near(s.boundFadeSeconds, 60.0f));
+			CHECK(s.who == Plugin::Who::kPlayerAndFollowers && s.tuning.curve == Glow::Curve::kLinear);
+		}
+		{
+			// one name per setting, and a key matches in any case
+			for (const auto& a : Plugin::SettingsText::kKeys) {
+				int same = 0;
+				for (const auto& b : Plugin::SettingsText::kKeys) {
+					same += Plugin::SettingsText::SameText(a.name, b.name) ? 1 : 0;
+				}
+				CHECK(same == 1);
+			}
+			Settings s;
+			CHECK(Plugin::SettingsText::Apply(s, "debuglog", 1) && s.debugLog);
+			CHECK(!Plugin::SettingsText::Apply(s, "Debug_Log", 1));
+		}
+	}
+
 }
 
 int main()
@@ -342,6 +454,9 @@ int main()
 	ScaledRestoreLeavesOthersWrites();
 	FormSpecs();
 	PreviewTriggers();
+	NaNNeverSticks();
+	ScaledHandlesNegativeValues();
+	SettingsFile();
 	std::printf("%d passed, %d failed\n", gPassed, gFailed);
 	return gFailed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

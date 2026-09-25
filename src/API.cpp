@@ -7,6 +7,7 @@
 
 #include "Plugin.h"
 
+#define WANINGGLOW_BUILDING  // the header's own half: the constants and types, not the lookups other plugins use
 #include "../include/WaningGlowAPI.h"
 
 extern "C" __declspec(dllexport) std::uint32_t WaningGlow_GetAPIVersion()

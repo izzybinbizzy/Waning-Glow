@@ -60,12 +60,22 @@ namespace Plugin
 		std::size_t              gRuleCount = 0, gFiles = 0;
 		std::vector<std::string> gProblems;
 
-		// which rules match a (weapon, enchantment) pair never changes after load: remembered
+		// which rules match a (weapon, enchantment) pair never changes while a game is loaded: remembered. Keyed by the
+		// forms AND their IDs, and forgotten when a game loads: an enchantment made at the table is freed with the game it
+		// belongs to, and another can be made at the same address.
+		struct PairKey
+		{
+			const void* weapon;
+			const void* ench;
+			RE::FormID  weaponID, enchID;
+			bool        operator==(const PairKey&) const = default;
+		};
 		struct PairHash
 		{
-			std::size_t operator()(const std::pair<const void*, const void*>& a_p) const noexcept
+			std::size_t operator()(const PairKey& a_k) const noexcept
 			{
-				return std::hash<const void*>{}(a_p.first) * 31u ^ std::hash<const void*>{}(a_p.second);
+				return std::hash<const void*>{}(a_k.weapon) * 31u ^ std::hash<const void*>{}(a_k.ench) ^
+				       (std::size_t{ a_k.enchID } * 0x9E3779B97F4A7C15ull);
 			}
 		};
 		struct Match
@@ -73,7 +83,7 @@ namespace Plugin
 			bool                     noFade{ false };  // the weapon carries WaningGlow_NoFade
 			std::vector<std::size_t> rules;            // the rules that match, in order
 		};
-		std::unordered_map<std::pair<const void*, const void*>, Match, PairHash> gMatches;
+		std::unordered_map<PairKey, Match, PairHash> gMatches;
 		std::mutex                                                                                  gMatchLock;
 
 		void Problem(std::string a_text)
@@ -327,7 +337,7 @@ namespace Plugin
 		const Match& MatchesFor(const RE::TESObjectWEAP* a_weapon, const RE::EnchantmentItem* a_ench)
 		{
 			std::lock_guard lock(gMatchLock);
-			const auto      key = std::make_pair(static_cast<const void*>(a_weapon), static_cast<const void*>(a_ench));
+			const PairKey   key{ a_weapon, a_ench, a_weapon ? a_weapon->GetFormID() : 0, a_ench ? a_ench->GetFormID() : 0 };
 			if (const auto it = gMatches.find(key); it != gMatches.end()) {
 				return it->second;
 			}
@@ -387,15 +397,21 @@ namespace Plugin
 			return;
 		}
 		std::vector<std::filesystem::path> files;
-		for (const auto& entry : std::filesystem::directory_iterator(kDir, ec)) {
-			if (entry.is_regular_file() && Lower(entry.path().extension().string()) == ".json") {
-				files.push_back(entry.path());
+		// increment(ec), not a range-for: the range-for's ++ throws on an error reading the folder
+		for (auto it = std::filesystem::directory_iterator(kDir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+			std::error_code fileEc;
+			if (it->is_regular_file(fileEc) && Lower(PathText(it->path().extension())) == ".json") {
+				files.push_back(it->path());
 			}
 		}
-		std::ranges::sort(files, {}, [](const auto& a_p) { return Lower(a_p.filename().string()); });
+		std::ranges::sort(files, {}, [](const auto& a_p) { return Lower(PathText(a_p.filename())); });
 		for (const auto& path : files) {
-			const auto    file = path.filename().string();
+			const auto    file = PathText(path.filename());
 			std::ifstream in(path);
+			if (!in) {
+				Problem(std::format("{}: cannot be read", file));
+				continue;
+			}
 			try {
 				const auto doc = nlohmann::json::parse(in, nullptr, true, true);  // comments allowed
 				if (!doc.is_object() || !doc.contains("rules") || !doc["rules"].is_array()) {
@@ -448,6 +464,12 @@ namespace Plugin
 			v.why = gRules[i].name;
 		}
 		return v;
+	}
+
+	void ForgetRuleMatches()
+	{
+		std::lock_guard lock(gMatchLock);
+		gMatches.clear();
 	}
 
 	std::size_t RuleCount()

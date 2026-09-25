@@ -60,10 +60,10 @@ namespace Plugin
 				first = false;
 			}
 			const auto& p = PreviewState();
-			const auto& s = Config();
+			const auto  s = Config();
 			json += std::format(
 				R"(],"preview":{},"previewCharge":{:.2f},"rules":{},"ruleFiles":{},"problems":{},"enabled":{},"floor":{:.2f},"curve":{},"reachFollows":{:.2f},"sputter":{},"cool":{},"pulse":{},"flare":{},"staves":{},"bound":{},"who":{},"dimShader":{}}})",
-				p.on, p.fraction, RuleCount(), RuleFileCount(), RuleProblems().size(), s.enabled, s.tuning.floor,
+				p.on.load(), p.fraction.load(), RuleCount(), RuleFileCount(), RuleProblems().size(), s.enabled, s.tuning.floor,
 				static_cast<int>(s.tuning.curve), s.tuning.reachFollows, s.tuning.sputter, s.tuning.cool, s.tuning.pulse, s.tuning.flare,
 				s.staves, s.bound, static_cast<int>(s.who), s.dimShader);
 			a_write(a_sink, json.c_str());
@@ -98,10 +98,11 @@ namespace Plugin
 			bool                   ok = true;
 			if (set == "preview") {
 				const float v = static_cast<float>(std::atof(Field(args, "value").c_str()));
-				p.on = v >= 0.0f;
-				if (p.on) {
+				const bool  on = std::isfinite(v) && v >= 0.0f;
+				if (on) {
 					p.fraction = Glow::Clamp01(v);
 				}
+				p.on = on;
 			} else if (set == "pulse") {
 				p.pulse = true;
 			} else if (set == "flare") {
