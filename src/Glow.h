@@ -167,9 +167,10 @@ namespace Glow
 	//   - the largest single fall lately, and
 	//   - what the recent drain rate takes over this frame and the one before (a fall may be a frame late),
 	// both let go over kFallRateSeconds (the rate faster while the charge holds still). A steady drain is one pulse when it starts; a hit while a drain runs still stands
-	// out. What cannot be told apart by the numbers: two like hits within about a third of a second are one pulse (the
-	// first raises the bar); a drain in steps further apart than about a third of a second pulses on each step; and a
-	// hitch that swallows two or more of a stepped drain's steps can read as one hit.
+	// out when hits are well apart (0.8 s is tested). What cannot be told apart by the numbers: two like hits within about
+	// a third of a second are one pulse (the first raises the bar) - within about half a second while a drain runs, as
+	// the drain keeps the first hit's rate from being let go quickly; a drain in steps further apart than about a third of
+	// a second pulses on each step; and a hitch that swallows two or more of a stepped drain's steps can read as one hit.
 	inline constexpr float kHitRatio = 4.0f;
 	inline constexpr float kFallRateSeconds = 0.25f;  // how long the recent drain is remembered (a hit counts too)
 	inline constexpr float kStillSeconds = 0.05f;     // how fast the drain rate is let go while the charge holds still
