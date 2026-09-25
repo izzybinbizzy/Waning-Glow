@@ -121,6 +121,7 @@ namespace Glow
 		float fallRate{ 0.0f };   // the fastest the charge has fallen lately, per second (let go over kFallRateSeconds)
 		float maxFall{ 0.0f };    // the largest single fall lately (let go the same way)
 		float lastDt{ 0.0f };     // the frame before this one, in seconds
+		float lastDt2{ 0.0f };    // and the one before that
 		// sputter: time into the current step, how long it lasts, the level it holds
 		float stepAge{ 0.0f }, stepLength{ 0.0f }, stepLevel{ 1.0f };
 		Rng   rng{};
@@ -139,7 +140,7 @@ namespace Glow
 			shown = a_fraction;
 			lastFraction = a_fraction;
 			pulseAge = flareAge = 1e9f;
-			fallRate = maxFall = lastDt = 0.0f;
+			fallRate = maxFall = lastDt = lastDt2 = 0.0f;
 			pulseSize = 0.0f;
 			stepAge = stepLength = 0.0f;
 			stepLevel = 1.0f;
@@ -201,11 +202,13 @@ namespace Glow
 
 		// what changed since last frame
 		const float delta = a_fraction - a_h.lastFraction;
-		// let go by time, but across a hitch (a frame more than twice the one before) by no more than the one before, and
-		// never more than 1/30 s: a hitch is not a pause in the drain, and what it owes comes due on the frame after. A
-		// steady low frame rate is let go in real time
-		const bool  hitch = a_h.lastDt > 0.0f && realDt > 2.0f * a_h.lastDt;
-		const float step = hitch ? (std::min)(a_h.lastDt, 1.0f / 30.0f) : realDt;
+		// let go by time, but across a hitch (a frame more than twice the longer of the two before) by no more than that
+		// one, and never more than 1/30 s: a hitch is not a pause in the drain, and what it owes comes due on the frame
+		// after. The longer of two, so frames alternating one and two intervals (vsync, a missed deadline) are not hitches;
+		// a steady low frame rate is let go in real time
+		const float recent = (std::max)(a_h.lastDt, a_h.lastDt2);
+		const bool  hitch = recent > 0.0f && realDt > 2.0f * recent;
+		const float step = hitch ? (std::min)(recent, 1.0f / 30.0f) : realDt;
 		a_h.maxFall *= std::exp(-step / kFallRateSeconds);
 		// the rate is a drain's: it holds while the charge keeps falling, and is let go quickly on a frame where it does
 		// not (hits come with still frames between them, a drain does not)
@@ -230,6 +233,7 @@ namespace Glow
 			a_h.maxFall = (std::max)(a_h.maxFall, -delta);
 			a_h.fallRate = (std::max)(a_h.fallRate, -delta / (std::max)(realDt, 0.001f));
 		}
+		a_h.lastDt2 = a_h.lastDt;
 		a_h.lastDt = realDt;
 
 		a_h.shown = Ease(a_h.shown, a_fraction, a_dt, a_fraction < a_h.shown ? a_t.fallSeconds : a_t.riseSeconds);

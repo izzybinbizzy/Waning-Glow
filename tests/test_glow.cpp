@@ -517,6 +517,26 @@ namespace
 			}
 			CHECK(pulses == hits);
 		}
+		// WG-R9-1: hits 0.4-0.55 s apart pulse each under uneven pacing (vsync alternating one and two intervals, 10/22 ms)
+		for (const auto& pace : { std::pair{ 1.0f / 60.0f, 2.0f / 60.0f }, std::pair{ 0.010f, 0.022f }, std::pair{ 1.0f / 144.0f, 2.0f / 144.0f } }) {
+			for (const float spacing : { 0.40f, 0.45f, 0.50f, 0.55f }) {
+				Glow::Hand h;
+				Glow::Rng  r{ 5u };
+				int        pulses = 0, hits = 0, frame = 0;
+				float      f = 1.0f, next = spacing;
+				for (float s = 0.0f; s < 10.0f; ++frame) {
+					const float dt = ((frame & 1) ? pace.second : pace.first) + 0.0004f * (r.Next() - 0.5f);
+					s += dt;
+					if (s >= next) {
+						next += spacing;
+						f -= 0.03f;
+						++hits;
+					}
+					pulses += Glow::Step(t, h, f, dt).pulsed ? 1 : 0;
+				}
+				CHECK(pulses == hits);
+			}
+		}
 		// WG-R8-1: a drain in 5 Hz steps with 250 ms hitches at a steady 20 fps is not hits (a hitch's let-go was a whole
 		// 50 ms frame: up to 6 pulses). At 30-60 fps a hitch that swallows two steps can still read as a hit: see Glow.h
 		for (const float fps : { 20.0f }) {
