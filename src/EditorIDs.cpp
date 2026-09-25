@@ -5,7 +5,7 @@
 // Editor IDs, recorded as each form loads, because the game throws most of them away. Rule files may name a weapon,
 // an enchantment or a magic effect by editor ID; keywords keep their own, so they need nothing here. The same way
 // Illuminated does it: SetFormEditorID (vtable slot 0x33) is hooked on the form types the rules read, at plugin load,
-// before the game reads its plugins. Nothing is ever erased, so a string_view into the table stays valid.
+// before the game reads its plugins. Nothing is ever erased; EditorID() hands out a copy.
 
 #include "Plugin.h"
 

@@ -118,6 +118,7 @@ namespace Glow
 		float pulseAge{ 1e9f };
 		float pulseSize{ 0.0f };
 		float flareAge{ 1e9f };
+		float sinceFall{ 1e9f };  // seconds since the charge last fell (by more than kSpendStep in a frame)
 		// sputter: time into the current step, how long it lasts, the level it holds
 		float stepAge{ 0.0f }, stepLength{ 0.0f }, stepLevel{ 1.0f };
 		Rng   rng{};
@@ -135,7 +136,7 @@ namespace Glow
 		{
 			shown = a_fraction;
 			lastFraction = a_fraction;
-			pulseAge = flareAge = 1e9f;
+			pulseAge = flareAge = sinceFall = 1e9f;
 			pulseSize = 0.0f;
 			stepAge = stepLength = 0.0f;
 			stepLevel = 1.0f;
@@ -155,6 +156,10 @@ namespace Glow
 	// charge that fell by more than this counts as spent on a hit; rose by more, as a recharge
 	inline constexpr float kSpendStep = 0.0005f;
 	inline constexpr float kRefillStep = 0.01f;
+	// a hit is a fall that STARTS: one after at least this long without a fall. A charge drained steadily (a
+	// concentration staff, a mod that drains charge over time) falls every frame, or in steps a few times a second, and
+	// that is one pulse when it starts, not one every frame
+	inline constexpr float kHitQuietSeconds = 0.25f;
 
 	[[nodiscard]] inline float Ease(float a_from, float a_to, float a_dt, float a_seconds) noexcept
 	{
@@ -183,15 +188,21 @@ namespace Glow
 		const float delta = a_fraction - a_h.lastFraction;
 		if (a_timed) {
 			// a clock: no moments
-		} else if (delta < -kSpendStep && a_t.pulse) {
-			a_h.pulseAge = 0.0f;
-			a_h.pulseSize = a_t.pulseStrength * (std::max)(a_h.shown, 0.25f);  // a near-empty hit still shows
-			out.pulsed = true;
+		} else if (delta < -kSpendStep) {
+			if (a_t.pulse && a_h.sinceFall >= kHitQuietSeconds) {
+				a_h.pulseAge = 0.0f;
+				a_h.pulseSize = a_t.pulseStrength * (std::max)(a_h.shown, 0.25f);  // a near-empty hit still shows
+				out.pulsed = true;
+			}
+			a_h.sinceFall = 0.0f;
 		} else if (delta > kRefillStep && a_t.flare) {
 			a_h.flareAge = 0.0f;
 			out.flared = true;
 		}
 		a_h.lastFraction = a_fraction;
+		if (delta >= -kSpendStep || a_timed) {
+			a_h.sinceFall = (std::min)(a_h.sinceFall + a_dt, 1e9f);
+		}
 
 		a_h.shown = Ease(a_h.shown, a_fraction, a_dt, a_fraction < a_h.shown ? a_t.fallSeconds : a_t.riseSeconds);
 		const float shown = a_h.shown;
@@ -249,6 +260,26 @@ namespace Glow
 		return Clamp01(left / a_fadeSeconds);
 	}
 
+	// What a hand's light follows, and whether it is a clock (see Step's a_timed). A bound weapon a rule treats as bound
+	// follows its spell's time left, over the rule's fade window (a clock); a bound weapon a rule puts on charge has none,
+	// so it stays full; anything else follows its charge.
+	struct Follow
+	{
+		float fraction{ 1.0f };
+		bool  timed{ false };
+	};
+	[[nodiscard]] inline Follow FollowOf(bool a_bound, bool a_boundRule, float a_current, float a_max, float a_fadeSeconds,
+		float a_charge) noexcept
+	{
+		if (!a_bound) {
+			return { a_charge, false };
+		}
+		if (!a_boundRule) {
+			return { 1.0f, false };
+		}
+		return { BoundFraction(a_max - a_current, a_max, a_fadeSeconds), true };
+	}
+
 	struct Rgb
 	{
 		float r{ 1.0f }, g{ 1.0f }, b{ 1.0f };
@@ -281,7 +312,9 @@ namespace Glow
 	// tell them apart. Cause and effect can: while a loop is suspected, what we write carries a tiny random dither
 	// (0.5%, far below what the eye sees). In a loop, what we read back next frame is our own write times the other
 	// plugin's factor, so it follows our write exactly; a value the owner wrote pays no attention to it. So:
-	//   - a base that moves by one steady ratio for 30 frames starts a 24-frame probe;
+	//   - a base that moves by one steady ratio for 30 frames starts a probe, which needs 24 frames where the read-back
+	//     followed our dither (a vote comes only on a frame where the dither changed sign: about 48 frames, under 1 s at
+	//     60 fps);
 	//   - the probe finds the loop: the base is frozen at its value before the drift, and the dither goes on, checking
 	//     every frame; the moment the read-back stops following our writes (the loop ended, or it was never one), the
 	//     freeze ends and the value read is the base again;

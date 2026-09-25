@@ -99,7 +99,7 @@ namespace Plugin
 		float fade{ 0.0f }, base{ 0.0f }, radius{ 0.0f };
 		bool  frozen{ false };
 	};
-	[[nodiscard]] std::vector<LightNow> LightsNow();  // every light being scaled: what it holds now, and its base
+	[[nodiscard]] std::vector<LightNow> LightsNow();  // every light being scaled: what it held after our last write, and its base
 	[[nodiscard]] std::size_t           ScaledLightCount();
 	[[nodiscard]] std::size_t           FrozenLightCount();
 

@@ -367,6 +367,73 @@ namespace
 		}
 	}
 
+	// a charge drained steadily (a concentration staff) is one pulse when it starts, not one every frame (WG-B1: at 60 fps
+	// a 4%/s drain pulsed on 99% of frames and held the light 1.47x bright), at any frame rate and any drain rate; hits a
+	// second apart still pulse each, and so does a hit while a slow drain runs
+	void SteadyDrainPulsesOnce()
+	{
+		Glow::Tuning t;
+		for (const float fps : { 20.0f, 30.0f, 60.0f, 144.0f }) {
+			for (const float perSecond : { 0.01f, 0.02f, 0.04f, 0.1f, 0.3f }) {
+				Glow::Hand h;
+				int        pulses = 0;
+				float      f = 1.0f, peak = 0.0f;
+				for (float s = 0.0f; s < 3.0f; s += 1.0f / fps) {
+					f = (std::max)(0.0f, f - perSecond / fps);
+					const auto o = Glow::Step(t, h, f, 1.0f / fps);
+					pulses += o.pulsed ? 1 : 0;
+					if (s > 1.0f) {
+						peak = (std::max)(peak, o.brightness);
+					}
+				}
+				CHECK(pulses <= 1);
+				CHECK(peak <= 1.0f + 1e-4f);  // past the first pulse it only dims
+			}
+			// the same drain applied in steps four times a second
+			{
+				Glow::Hand h;
+				int        pulses = 0;
+				float      f = 1.0f;
+				int        frame = 0;
+				for (float s = 0.0f; s < 5.0f; s += 1.0f / fps, ++frame) {
+					if (frame % static_cast<int>(fps / 4.0f) == 0) {
+						f -= 0.01f;
+					}
+					pulses += Glow::Step(t, h, f, 1.0f / fps).pulsed ? 1 : 0;
+				}
+				CHECK(pulses <= 1);
+			}
+			// a hit a second: every one pulses
+			{
+				Glow::Hand h;
+				int        pulses = 0;
+				float      f = 1.0f;
+				for (int frame = 0; frame < static_cast<int>(fps) * 5; ++frame) {  // hits at 1, 2, 3 and 4 s
+					if (frame > 0 && frame % static_cast<int>(fps) == 0) {
+						f -= 0.05f;
+					}
+					pulses += Glow::Step(t, h, f, 1.0f / fps).pulsed ? 1 : 0;
+				}
+				CHECK(pulses == 4);
+			}
+		}
+	}
+
+	// the hand's light follows the right thing: a bound weapon a rule treats as bound is a clock (so it never pulses)
+	void FollowOfBoundAndCharged()
+	{
+		const auto charged = Glow::FollowOf(false, false, 0.0f, 0.0f, 10.0f, 0.4f);
+		CHECK(charged.fraction == 0.4f && !charged.timed);
+		const auto boundOnCharge = Glow::FollowOf(true, false, 5.0f, 60.0f, 10.0f, 0.4f);
+		CHECK(Glow::FollowOf(true, true, 30.0f, 60.0f, 10.0f, 0.4f).fraction == 1.0f);  // not yet in the fade window
+		CHECK(boundOnCharge.fraction == 1.0f && !boundOnCharge.timed);
+		const auto bound = Glow::FollowOf(true, true, 5.0f, 60.0f, 10.0f, 0.4f);  // 5 s left, halfway through a 10 s fade
+		CHECK(bound.timed);
+		CHECK(std::abs(bound.fraction - 0.5f) < 1e-5f);
+		const auto chargedRule = Glow::FollowOf(false, true, 55.0f, 60.0f, 10.0f, 0.7f);  // a charged weapon a rule calls bound
+		CHECK(chargedRule.fraction == 0.7f && !chargedRule.timed);
+	}
+
 	// a real loop stays caught for as long as it lasts, even while the other plugin's factor drifts slowly
 	void ScaledHoldsALongLoop()
 	{
@@ -634,6 +701,8 @@ int main()
 	ScaledHoldsALongLoop();
 	ScaledReleasesEveryShape();
 	BoundFadeNeverPulses();
+	SteadyDrainPulsesOnce();
+	FollowOfBoundAndCharged();
 	ScaledHandlesNegativeValues();
 	SettingsFile();
 	std::printf("%d passed, %d failed\n", gPassed, gFailed);

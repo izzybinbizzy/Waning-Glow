@@ -62,6 +62,7 @@ namespace Plugin
 			ColorKeep                  color;
 			std::uint32_t              frame{ 0 };
 			std::uint64_t              hand{ 0 };  // the hand whose numbers it last took, for ReapplyAll
+			float                      shownFade{ 0.0f }, shownRadius{ 0.0f };  // what it held after our last write
 		};
 
 		struct ShaderSeen
@@ -169,6 +170,8 @@ namespace Plugin
 			if (a_hand.out.cool > 0.0f || seen.color.touched) {
 				data.diffuse = seen.color.Apply(data.diffuse, t.coolTint, a_hand.out.cool);
 			}
+			seen.shownFade = data.fade;  // for LightsNow, which must not read the game's light off the main thread
+			seen.shownRadius = data.radius.x;
 		}
 
 		void RestoreLight(LightSeen& a_seen)
@@ -408,15 +411,9 @@ namespace Plugin
 					h.effectRoots.clear();
 					continue;
 				}
-				// a bound weapon's fraction is its spell's time left, over the rule's fade window; a bound weapon a rule
-				// puts on charge has none, so it stays full, and a charged weapon a rule calls bound follows its charge
-				if (h.reading.bound) {
-					h.fraction = h.verdict.mode == Mode::kBound ?
-					                 Glow::BoundFraction(h.reading.max - h.reading.current, h.reading.max, h.verdict.boundFadeSeconds) :
-					                 1.0f;
-				} else {
-					h.fraction = h.reading.fraction;
-				}
+				const Glow::Follow follow = Glow::FollowOf(h.reading.bound, h.verdict.mode == Mode::kBound, h.reading.current,
+					h.reading.max, h.verdict.boundFadeSeconds, h.reading.fraction);
+				h.fraction = follow.fraction;
 				if (previewOn) {  // before a new weapon's reset, so the preview's charge is not taken as a hit or a refill
 					h.fraction = Glow::Clamp01(preview.fraction);
 				}
@@ -440,8 +437,9 @@ namespace Plugin
 					h.glow.TriggerFlare();
 				}
 				h.active = true;
-				const bool timed = h.reading.bound && h.verdict.mode == Mode::kBound;  // a spell's time left, not a charge
-				h.out = Glow::Step(h.verdict.tuning, h.glow, h.fraction, a_delta, timed);
+				// a spell's time left is not a charge; nor is the preview's slider, which moves the charge by hand (its
+				// buttons pulse and flare on purpose, above)
+				h.out = Glow::Step(h.verdict.tuning, h.glow, h.fraction, a_delta, follow.timed || previewOn);
 				if ((h.out.pulsed || h.out.flared) && s.debugLog) {
 					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
@@ -596,8 +594,7 @@ namespace Plugin
 		out.reserve(gLights.size());
 		for (const auto& [light, seen] : gLights) {
 			if (seen.light) {
-				const auto& data = seen.light->GetLightRuntimeData();
-				out.push_back({ data.fade, seen.fade.base, data.radius.x, seen.fade.frozen });
+				out.push_back({ seen.shownFade, seen.fade.base, seen.shownRadius, seen.fade.frozen });
 			}
 		}
 		return out;
