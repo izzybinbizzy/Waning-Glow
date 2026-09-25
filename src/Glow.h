@@ -200,9 +200,10 @@ namespace Glow
 
 		// what changed since last frame
 		const float delta = a_fraction - a_h.lastFraction;
-		// let go by time, but by no more than one short frame's worth across a single long one: a hitch is not a pause in
-		// the drain, and what it owes comes due on the frame after
-		const float step = (std::min)(realDt, 1.0f / 30.0f);
+		// let go by time, but across a single frame much longer than the one before (a hitch) by no more than that one's
+		// worth: a hitch is not a pause in the drain, and what it owes comes due on the frame after. A steady low frame rate
+		// is let go in real time
+		const float step = (std::min)(realDt, (std::max)(1.0f / 30.0f, a_h.lastDt));
 		a_h.maxFall *= std::exp(-step / kFallRateSeconds);
 		// the rate is a drain's: it holds while the charge keeps falling, and is let go quickly on a frame where it does
 		// not (hits come with still frames between them, a drain does not)

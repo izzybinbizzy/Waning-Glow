@@ -501,6 +501,22 @@ namespace
 			}
 			CHECK(pulses <= 1);
 		}
+		// WG-R7-1: hits half a second apart pulse each at a steady low frame rate too (a cap meant for hitches slowed the
+		// let-go on every frame below 30 fps)
+		for (const float fps : { 15.0f, 20.0f, 24.0f, 30.0f, 60.0f }) {
+			Glow::Hand h;
+			int        pulses = 0, hits = 0;
+			float      f = 1.0f;
+			const int  every = static_cast<int>(fps / 2.0f);
+			for (int i = 1; i < static_cast<int>(fps) * 5; ++i) {
+				if (i % every == 0) {
+					f -= 0.02f;
+					++hits;
+				}
+				pulses += Glow::Step(t, h, f, 1.0f / fps).pulsed ? 1 : 0;
+			}
+			CHECK(pulses == hits);
+		}
 		// hits of 5% half a second apart while a stepped drain runs: each one pulses
 		{
 			Glow::Hand h;
