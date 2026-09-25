@@ -5,12 +5,15 @@
 // DevBench, when it is in the load order: `inspect kind=waningglow` returns the Debug page as JSON - each tracked hand
 // and the fade each of its lights holds right now next to the base it was scaled from - and `menu action=invoke
 // name=waningglow` drives the Debug page's preview (set = preview with value = charge 0-1, or -1 to stop; pulse; flare),
-// its rule reload (set=reloadrules), and any Settings-page switch (set=setting key=<ini key> value=<n>), never saved.
+// its rule reload (set=reloadrules), and any Settings-page switch (set=setting key=<ini key> value=<n>). DevBench never saves;
+// a later change made in the menu saves the settings as they are then.
 // Nothing here runs unless DevBench asks.
 
 #include "Plugin.h"
 
 #include "DevBenchAPI.h"
+
+#include <nlohmann/json.hpp>
 
 namespace Plugin
 {
@@ -23,20 +26,14 @@ namespace Plugin
 			R"({"description":"Waning Glow - each tracked hand (weapon, enchantment, charge, brightness, reach, cooling, lights found), and every light being scaled with the fade it holds now and the base it was scaled from. Read only.","inputSchema":{"type":"object","properties":{}},"readOnly":true})";
 
 		constexpr const char* kMenu =
-			R"({"description":"Waning Glow - the Debug page's preview: set=preview value=charge 0..1 (-1 stops), set=pulse, set=flare; set=reloadrules; set=setting key=<WaningGlow.ini key> value=<whole number> flips a Settings-page switch or slider. Never saved.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})";
+			R"({"description":"Waning Glow - the Debug page's preview: set=preview value=charge 0..1 (-1 stops), set=pulse, set=flare; set=reloadrules; set=setting key=<WaningGlow.ini key> value=<whole number> flips a Settings-page switch or slider. Not saved from here.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})";
 
+		// a_s as the contents of a JSON string: quotes, backslashes and control characters escaped, and a byte that is not
+		// UTF-8 (a name in the ANSI code page) replaced, so the reply is always valid JSON
 		std::string Escaped(std::string_view a_s)
 		{
-			std::string out;
-			for (const char c : a_s) {
-				if (c == '"' || c == '\\') {
-					out += '\\';
-				}
-				if (static_cast<unsigned char>(c) >= 0x20) {
-					out += c;
-				}
-			}
-			return out;
+			const auto quoted = nlohmann::json(std::string(a_s)).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+			return quoted.substr(1, quoted.size() - 2);
 		}
 
 		void Inspect(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write)
@@ -108,8 +105,9 @@ namespace Plugin
 			} else if (set == "flare") {
 				p.flare = true;
 			} else if (set == "setting") {
-				// the Settings page's switch, slider or choice, through the same ApplySetting the file uses; never saved
-				ok = ApplySetting(Field(args, "key"), std::atoi(Field(args, "value").c_str()));
+				// the Settings page's switch, slider or choice, through the same ApplySetting the file uses; not saved from here
+				int value = 0;
+				ok = SettingsText::ReadInt(Field(args, "value"), value) && ApplySetting(Field(args, "key"), value);
 			} else if (set == "reloadrules") {
 				// the Debug page's "Reload rule files": on the main thread, between frames
 				if (auto* tasks = SKSE::GetTaskInterface()) {

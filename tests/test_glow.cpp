@@ -1,12 +1,13 @@
-// Waning Glow - tests for src/Glow.h, src/FormText.h and src/SettingsText.h (no game needed).
+// Waning Glow - tests for src/Glow.h, src/FormText.h, src/SettingsText.h and src/RulesText.h (no game needed).
 // Copyright (C) 2026 izzydoingit. GPL-3.0-or-later.
 //
-// Build and run on any C++20 compiler:
-//   g++ -std=c++20 -Wall -Wextra -I../src test_glow.cpp -o test_glow && ./test_glow
-//   cl /std:c++20 /EHsc /I..\src test_glow.cpp && test_glow.exe
+// Build and run on any C++23 compiler (build.bat does it through xmake, which fetches the JSON library):
+//   g++ -std=c++23 -Wall -Wextra -I../src -I<nlohmann json include> test_glow.cpp -o test_glow && ./test_glow
+//   cl /std:c++latest /EHsc /I..\src /I<nlohmann json include> test_glow.cpp && test_glow.exe
 
 #include "FormText.h"
 #include "Glow.h"
+#include "RulesText.h"
 #include "SettingsText.h"
 
 #include <cmath>
@@ -276,6 +277,120 @@ namespace
 		CHECK(v > 0.05f);  // held, not driven to zero
 	}
 
+	// a light's own smooth animation can look like a loop for a while; it must never leave the light pinned
+	void ScaledReleasesAnAnimation()
+	{
+		// a 1 s fade from 0.2 to 1.0, then the owner holds 1.0 (writing it every frame)
+		Glow::Scaled s;
+		float        v = 0.0f;
+		for (int i = 0; i <= 60; ++i) {
+			v = s.Apply(0.2f + 0.8f * static_cast<float>(i) / 60.0f, 0.5f);
+		}
+		for (int i = 0; i < 10; ++i) {
+			v = s.Apply(1.0f, 0.5f);
+		}
+		CHECK(Near(v, 0.5f));                 // owner x factor again
+		CHECK(!s.frozen);
+		CHECK(Near(s.Restore(v), 1.0f));      // let go: the owner's value, not a pinned one
+		// a slow sine pulse (the owner rewriting every frame) at 30, 60 and 144 fps, 1 to 4 s periods
+		for (const float fps : { 30.0f, 60.0f, 144.0f }) {
+			for (const float period : { 1.0f, 2.0f, 4.0f }) {
+				Glow::Scaled p;
+				int          off = 0, frames = 0;
+				for (float t = 0.0f; t < 20.0f; t += 1.0f / fps) {
+					const float owner = 1.0f + 0.25f * std::sin(6.2831853f * t / period);
+					const float out = p.Apply(owner, 0.5f);
+					off += std::fabs(out - owner * 0.5f) > 0.01f ? 1 : 0;
+					++frames;
+				}
+				CHECK(off * 20 < frames);  // on at least 95% of frames it is exactly owner x factor
+			}
+		}
+	}
+
+	// a real loop stays caught for as long as it lasts, even while the other plugin's factor drifts slowly
+	void ScaledHoldsALongLoop()
+	{
+		Glow::Scaled ours, theirs;
+		float        v = 1.0f;
+		for (int i = 0; i < 3000; ++i) {
+			const float f = 0.9f - 0.1f * static_cast<float>(i) / 3000.0f;  // the partner's charge falling slowly
+			v = ours.Apply(v, 0.8f);
+			v = theirs.Apply(v, f);
+		}
+		CHECK(ours.frozen || theirs.frozen);
+		CHECK(v > 0.05f);
+	}
+
+	// a rule file: what it reads, what it reports, and how matching rules lay over each other
+	void RuleFiles()
+	{
+		using namespace Plugin::RulesText;
+		// the load order: Skyrim.esm is installed (its forms keep their IDs), Missing.esp is not
+		const Resolve resolve = [](std::string_view a_plugin, std::uint32_t a_id) -> std::optional<std::uint32_t> {
+			if (a_plugin == "Skyrim.esm") {
+				return FormText::LocalID(a_id, false);
+			}
+			return std::nullopt;
+		};
+		{
+			Loaded l;
+			CHECK(ReadFile(R"({ "rules": [
+				{ "name": "a", "weapons": ["Skyrim.esm|0x0102ACD2", "DA01Dawnbreaker"], "mode": "exempt" },
+				{ "name": "b", "effectKeywords": "MagicDamageFire", "curve": "Steep", "sputterBelow": 90, "emptyBrightness": -5,
+				  "colorCoolingTint": "gray", "boundFadeSeconds": 0 },
+				// a comment
+				{ "name": "c", "weapons": ["Missing.esp|0x800"] }
+			] })", "mod.json", resolve, l));
+			CHECK(l.problems.empty());
+			CHECK(l.rules.size() == 2);  // "c" names only a form that is not installed: it matches nothing, so it is skipped
+			CHECK(l.notes.size() == 2);  // ...and the log says why (the entry, then the rule)
+			const auto& a = l.rules[0];
+			CHECK(a.name == "mod.json #1: a" && a.weapons.size() == 2 && a.weapons[0].id == 0x02ACD2 && a.weapons[1].editorID == "da01dawnbreaker");
+			CHECK(a.mode == Plugin::Mode::kExempt);
+			const auto& b = l.rules[1];
+			CHECK(b.effectKeywords == std::vector<std::string>{ "magicdamagefire" });  // one string on its own is a list of one
+			CHECK(b.curve == Glow::Curve::kSteep && b.coolTint == Glow::CoolTint::kGrey);
+			CHECK(Near(*b.sputterBelow, 0.5f) && Near(*b.floor, 0.0f) && Near(*b.boundFadeSeconds, 1.0f));  // clamped
+		}
+		{
+			// what is wrong is reported, and only that setting is dropped
+			Loaded l;
+			CHECK(ReadFile(R"({ "rules": [ { "name": "x", "sputter": "yes", "hitPulseStrength": true, "mode": "sometimes",
+				"curvee": "linear", "weapons": [7, "Skyrim.esm|0xZZ"], "reachFollows": 40 }, 3 ] })", "bad.json", resolve, l));
+			CHECK(l.problems.size() == 7);  // sputter, hitPulseStrength, mode, curvee, 7, 0xZZ, the rule that is 3
+			CHECK(l.rules.size() == 0);    // it named weapons, none of them usable: skipped, never "every weapon"
+			Loaded m;
+			CHECK(ReadFile(R"({ "rules": [ { "sputter": "yes", "reachFollows": 40 } ] })", "bad2.json", resolve, m));
+			CHECK(m.rules.size() == 1 && !m.rules[0].sputter && Near(*m.rules[0].reachFollows, 0.4f));
+		}
+		{
+			// not a rule file at all: a problem, never an exception
+			for (const char* text : { "not json", R"({ "rules": 5 })", R"([1, 2])", R"({ "rules": [ { "reachFollows": 1e400 } ] })" }) {
+				Loaded l;
+				bool   threw = false;
+				try {
+					CHECK(!ReadFile(text, "f.json", resolve, l));
+				} catch (...) {
+					threw = true;
+				}
+				CHECK(!threw && l.problems.size() == 1);
+			}
+		}
+		{
+			// a later rule's setting replaces an earlier one's; what it does not set is kept
+			Loaded l;
+			ReadFile(R"({ "rules": [ { "name": "first", "curve": "linear", "hitPulse": false, "mode": "exempt" },
+				{ "name": "second", "curve": "steep", "mode": "charge" } ] })", "o.json", resolve, l);
+			Plugin::Verdict v;
+			for (const auto& r : l.rules) {
+				Overlay(r, v);
+			}
+			CHECK(v.tuning.curve == Glow::Curve::kSteep && !v.tuning.pulse && v.mode == Plugin::Mode::kCharge);
+			CHECK(v.why == "o.json #2: second");
+		}
+	}
+
 	void ScaledRestoreLeavesOthersWrites()
 	{
 		Glow::Scaled s;
@@ -455,6 +570,9 @@ int main()
 	FormSpecs();
 	PreviewTriggers();
 	NaNNeverSticks();
+	RuleFiles();
+	ScaledReleasesAnAnimation();
+	ScaledHoldsALongLoop();
 	ScaledHandlesNegativeValues();
 	SettingsFile();
 	std::printf("%d passed, %d failed\n", gPassed, gFailed);

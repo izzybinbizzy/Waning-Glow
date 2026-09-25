@@ -165,8 +165,11 @@ namespace Plugin
 				save);
 			Toggle("Debug log", s.debugLog, "Writes each tracked weapon, rule match, pulse and flare to WaningGlow.log.", save);
 
-			if (s != before) {
-				SetConfig(s);
+			// only what changed on this page goes back, key by key: a change DevBench made meanwhile is kept
+			for (const auto& k : SettingsText::kKeys) {
+				if (k.get(s) != k.get(before)) {
+					ApplySetting(k.name, k.get(s));
+				}
 			}
 			if (save) {
 				SaveSettings();

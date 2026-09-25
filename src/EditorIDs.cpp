@@ -49,7 +49,7 @@ namespace Plugin
 		SKSE::log::info("editor IDs: weapons, enchantments and magic effects are recorded as they load");
 	}
 
-	std::string_view EditorID(const RE::TESForm* a_form)
+	std::string EditorID(const RE::TESForm* a_form)
 	{
 		if (!a_form) {
 			return {};
@@ -61,7 +61,7 @@ namespace Plugin
 			}
 		}
 		const char* own = a_form->GetFormEditorID();
-		return own ? std::string_view(own) : std::string_view();
+		return own ? std::string(own) : std::string();
 	}
 
 	std::string Label(const RE::TESForm* a_form)

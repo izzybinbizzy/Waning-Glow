@@ -43,6 +43,7 @@ target("test_glow", function()
     add_defines("NOMINMAX") -- windows.h min/max macros break std::min/max and numeric_limits::max
     set_kind("binary")
     set_default(false)
+    add_packages("nlohmann_json")  -- the rule files' text (src/RulesText.h) is tested too
     add_files("tests/test_glow.cpp")
     add_includedirs("src")
 end)

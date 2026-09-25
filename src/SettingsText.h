@@ -68,6 +68,22 @@ namespace Plugin
 		bool operator==(const Settings&) const = default;
 	};
 
+	// what a weapon ends up with once the rule files have had their say (Rules.cpp, RulesText.h)
+	enum class Mode : int
+	{
+		kCharge = 0,  // the light follows the enchantment's charge
+		kExempt = 1,  // the light is left alone
+		kBound = 2    // the light follows the time a bound-weapon spell has left
+	};
+
+	struct Verdict
+	{
+		Mode         mode{ Mode::kCharge };
+		Glow::Tuning tuning{};
+		float        boundFadeSeconds{ 10.0f };
+		std::string  why;  // the rule(s) that decided it, for the menu's debug page
+	};
+
 	namespace SettingsText
 	{
 		[[nodiscard]] inline float Pct(int a_v, int a_lo, int a_hi) { return static_cast<float>(std::clamp(a_v, a_lo, a_hi)) / 100.0f; }

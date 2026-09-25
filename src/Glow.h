@@ -271,28 +271,41 @@ namespace Glow
 	// base * factor. Calling it twice in one frame writes the same number: it never compounds with itself.
 	//
 	// It CAN compound with another plugin that scales the same value the same way: each sees the other's write as a
-	// new base, so the base shrinks (or grows) by the same ratio every frame. A flicker moves the base by a different
-	// ratio each frame, and a steady light's owner rewriting its own value moves it not at all, so a base that moves
-	// by one steady ratio (not 1) for 30 frames running is that loop: the base is frozen at the value before the drift.
+	// new base, so the base shrinks (or grows) by the same ratio every frame. So a base that moves by one steady ratio
+	// (not 1) for 30 frames running is taken as that loop, and the base is frozen at its value before the drift.
+	//
+	// A smooth animation of the light's own (a fade-in, a slow pulse) can look like that loop for a while, so a freeze is
+	// checked every frame after: in a real loop what we read back is what we wrote times the other plugin's factor, the
+	// same factor frame after frame; when it is not (the owner wrote a value of its own), the freeze ends at once and the
+	// value read is the base again. Values may be negative (a darkness light's fade).
 	struct Scaled
 	{
 		float base{ 0.0f };
 		float written{ 0.0f };      // what we wrote last (meaningful once `touched`)
-		bool  touched{ false };     // we have written this value (a value may be negative: a darkness light's fade)
-		float driftFrom{ 0.0f };  // the base when the current run of steady drift began
+		bool  touched{ false };     // we have written this value
+		float driftFrom{ 0.0f };    // the base when the current run of steady drift began
 		float lastRatio{ 1.0f };
-		int   drift{ 0 };  // consecutive frames the base moved by about the same ratio
+		int   drift{ 0 };           // consecutive frames the base moved by about the same ratio
 		bool  frozen{ false };
+		float loopFactor{ 1.0f };   // while frozen: what the other plugin multiplies our write by
 
-		static constexpr int kDriftFrames = 30;
+		static constexpr int   kDriftFrames = 30;
+		static constexpr float kLoopTolerance = 0.05f;  // a partner's factor moving more than this in a frame ends the freeze
 
 		[[nodiscard]] float Apply(float a_current, float a_factor) noexcept
 		{
-			if (!touched || a_current != written) {
-				if (!touched) {
-					base = a_current;
-				} else if (!frozen) {
-					const float ratio = base > 0.0f ? a_current / base : 1.0f;
+			if (!touched) {
+				base = a_current;
+			} else if (a_current != written) {
+				if (frozen) {
+					const float f = written != 0.0f ? a_current / written : 0.0f;
+					if (written != 0.0f && std::abs(f - loopFactor) <= kLoopTolerance * std::abs(loopFactor)) {
+						loopFactor = f;  // still the loop (following a partner whose own factor moves slowly)
+					} else {
+						Thaw(a_current);  // the owner wrote a value of its own: it is the base
+					}
+				} else {
+					const float ratio = base != 0.0f ? a_current / base : 1.0f;
 					const bool  moving = std::abs(ratio - 1.0f) > 0.005f;
 					const bool  steady = moving && std::abs(ratio - lastRatio) < 0.02f * std::abs(lastRatio);
 					if (!steady || drift == 0) {
@@ -300,8 +313,9 @@ namespace Glow
 					}
 					drift = steady ? drift + 1 : (moving ? 1 : 0);
 					lastRatio = ratio;
-					if (drift >= kDriftFrames) {
+					if (drift >= kDriftFrames && written != 0.0f) {
 						frozen = true;  // another scaler feeds our output back to us: keep the base from before the loop
+						loopFactor = a_current / written;
 						base = driftFrom;
 					} else {
 						base = a_current;
@@ -318,5 +332,14 @@ namespace Glow
 
 		// what to put back when we let go: our base if the value still holds our write, else leave it
 		[[nodiscard]] float Restore(float a_current) const noexcept { return touched && a_current == written ? base : a_current; }
+
+	private:
+		void Thaw(float a_current) noexcept
+		{
+			frozen = false;
+			drift = 0;
+			lastRatio = 1.0f;
+			base = a_current;
+		}
 	};
 }

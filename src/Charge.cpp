@@ -105,7 +105,7 @@ namespace Plugin
 			r.tracked = true;
 			r.current = (std::max)(visitor.time.duration - visitor.time.elapsed, 0.0f);
 			r.max = visitor.time.duration;
-			r.fraction = Glow::BoundFraction(visitor.time.elapsed, visitor.time.duration, Config().boundFadeSeconds);
+			// its fraction is the time left over the fade window a rule may change: Lights.cpp works it out with the verdict
 			return r;
 		}
 

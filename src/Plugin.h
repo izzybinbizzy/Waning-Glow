@@ -50,28 +50,14 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ EditorIDs.cpp: names the game throws away
 	void                           InstallEditorIDHooks();  // at plugin load, before the game reads its plugins
-	[[nodiscard]] std::string_view EditorID(const RE::TESForm* a_form);  // "" when unknown
+	[[nodiscard]] std::string      EditorID(const RE::TESForm* a_form);  // "" when unknown (a copy: the table may be rewritten)
 	[[nodiscard]] std::string      Label(const RE::TESForm* a_form);     // "Name [EditorID] Plugin.esp|0x001234" for the log
 
 	// ------------------------------------------------------------------ Rules.cpp: rule files
-	enum class Mode : int
-	{
-		kCharge = 0,  // the light follows the enchantment's charge
-		kExempt = 1,  // the light is left alone
-		kBound = 2    // the light follows the time a bound-weapon spell has left
-	};
-
-	struct Verdict
-	{
-		Mode         mode{ Mode::kCharge };
-		Glow::Tuning tuning{};
-		float        boundFadeSeconds{ 10.0f };
-		std::string  why;  // the rule(s) that decided it, for the menu's debug page
-	};
-
 	void                                          LoadRules();  // at data load, after the settings
-	[[nodiscard]] Verdict                         Judge(const RE::TESObjectWEAP* a_weapon, const RE::EnchantmentItem* a_ench);
+	[[nodiscard]] Verdict                         Judge(const RE::TESObjectWEAP* a_weapon, const RE::EnchantmentItem* a_ench, const Settings& a_settings);
 	void                                          ForgetRuleMatches();  // a game loads: the forms made in play are new ones
+	[[nodiscard]] std::uint32_t                   RulesGeneration();    // changes whenever the rule files are read again
 	[[nodiscard]] std::size_t                     RuleCount();
 	[[nodiscard]] std::size_t                     RuleFileCount();
 	[[nodiscard]] std::vector<std::string>        RuleProblems();  // a copy: the menu reads it while a reload may run

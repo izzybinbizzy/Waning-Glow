@@ -89,6 +89,12 @@ namespace Plugin
 			Glow::Output             out{};
 			Verdict                  verdict{};
 			Reading                  reading{};
+			// what the verdict was worked out for (it is kept until one of these changes)
+			bool                     verdictKnown{ false };
+			const void*              verdictWeapon{ nullptr };
+			const void*              verdictEnch{ nullptr };
+			std::uint32_t            verdictRules{ 0 };
+			Settings                 verdictSettings{};
 			float                    fraction{ 1.0f };
 			std::vector<Root>        effectRoots;  // enchantment effects' attach roots, from the reference-effect hooks
 			std::size_t              lights{ 0 }, roots{ 0 };
@@ -103,6 +109,9 @@ namespace Plugin
 		// how many hands are active, read without the lock by the effect hooks: every art and shader effect in the world
 		// calls them each frame, and with no enchanted weapon out they need not look up (RTTI) whose effect it is
 		std::atomic<std::size_t>                       gActiveHands{ 0 };
+		// this frame's switches, for the effect hooks, which run for every effect in the world and must not lock and copy
+		// the settings each time
+		std::atomic<bool>                              gEnabled{ false }, gDimShader{ false };
 
 		[[nodiscard]] std::uint64_t Key(RE::ActorHandle a_actor, bool a_left)
 		{
@@ -312,9 +321,9 @@ namespace Plugin
 			SKSE::log::info("  {} light(s) on {} in all", n, a_actor->GetName());
 		}
 
-		void LogHand(const HandTrack& a_h, std::string_view a_what)
+		void LogHand(const HandTrack& a_h, std::string_view a_what, bool a_on)
 		{
-			if (Config().debugLog) {
+			if (a_on) {
 				SKSE::log::info("{} {} hand: {} | {} | {} - charge {:.0f}/{:.0f} ({:.0f}%) - {}", a_h.actorName, a_h.left ? "left" : "right",
 					a_what, Label(a_h.reading.weapon), Label(a_h.reading.ench), a_h.reading.current, a_h.reading.max,
 					a_h.fraction * 100.0f, a_h.verdict.why);
@@ -327,6 +336,8 @@ namespace Plugin
 		std::lock_guard lock(gLock);
 		++gFrame;
 		const Settings s = Config();  // one copy for the frame
+		gEnabled = s.enabled;
+		gDimShader = s.dimShader;
 		if (!s.enabled) {
 			for (auto& [light, seen] : gLights) {
 				RestoreLight(seen);
@@ -353,16 +364,27 @@ namespace Plugin
 				if (!h.reading.tracked) {
 					h.active = false;
 					h.weapon = nullptr;
+					h.effectRoots.clear();  // nothing of ours here: let go of the old effects' 3D
 					continue;
 				}
-				h.verdict = Judge(h.reading.weapon, h.reading.ench);
+				// the verdict changes only with the weapon, the settings or the rules: worked out again only then
+				if (!h.verdictKnown || h.verdictWeapon != h.reading.weapon || h.verdictEnch != h.reading.ench || h.verdictRules != RulesGeneration() ||
+					!(h.verdictSettings == s)) {
+					h.verdict = Judge(h.reading.weapon, h.reading.ench, s);
+					h.verdictKnown = true;
+					h.verdictWeapon = h.reading.weapon;
+					h.verdictEnch = h.reading.ench;
+					h.verdictRules = RulesGeneration();
+					h.verdictSettings = s;
+				}
 				if (h.verdict.mode == Mode::kExempt) {
 					if (h.active || h.weapon != h.reading.weapon) {
 						h.actorName = actor->GetName();
-						LogHand(h, "left alone");
+						LogHand(h, "left alone", s.debugLog);
 					}
 					h.active = false;
 					h.weapon = h.reading.weapon;
+					h.effectRoots.clear();
 					continue;
 				}
 				// a bound weapon's fraction is its spell's time left, over the rule's fade window; a bound weapon a rule
@@ -374,18 +396,18 @@ namespace Plugin
 				} else {
 					h.fraction = h.reading.fraction;
 				}
+				if (preview.on) {  // before a new weapon's reset, so the preview's charge is not taken as a hit or a refill
+					h.fraction = Glow::Clamp01(preview.fraction);
+				}
 				if (!h.active || h.weapon != h.reading.weapon || h.instance != h.reading.instance) {
 					h.weapon = h.reading.weapon;
 					h.instance = h.reading.instance;
 					h.glow.Reset(h.fraction, static_cast<std::uint32_t>(Key(h.actor, left) * 2654435761u));
 					h.actorName = actor->GetName();
-					LogHand(h, "now tracked");
+					LogHand(h, "now tracked", s.debugLog);
 					if (s.debugLog) {
 						LogActorLights(actor.get());
 					}
-				}
-				if (preview.on) {
-					h.fraction = Glow::Clamp01(preview.fraction);
 				}
 				if (pulseNow) {
 					h.glow.TriggerPulse(h.verdict.tuning);
@@ -396,7 +418,7 @@ namespace Plugin
 				h.active = true;
 				h.out = Glow::Step(h.verdict.tuning, h.glow, h.fraction, a_delta);
 				if ((h.out.pulsed || h.out.flared) && s.debugLog) {
-					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)");
+					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
 				ApplyHand(actor.get(), h);
 			}
@@ -424,7 +446,7 @@ namespace Plugin
 			return;
 		}
 		std::lock_guard lock(gLock);
-		if (!Config().enabled) {
+		if (!gEnabled) {
 			return;
 		}
 		auto it = gHands.find(Key(actor->GetHandle(), left));
@@ -451,7 +473,7 @@ namespace Plugin
 	void AfterShaderEffect(RE::ShaderReferenceEffect* a_effect)
 	{
 		// the cheap test first: every effect shader in the loaded world comes through here every frame
-		if (gActiveHands.load(std::memory_order_relaxed) == 0 || !Config().dimShader) {
+		if (gActiveHands.load(std::memory_order_relaxed) == 0 || !gDimShader.load(std::memory_order_relaxed)) {
 			return;
 		}
 		RE::Actor*      actor = nullptr;
@@ -481,7 +503,7 @@ namespace Plugin
 	void ReapplyAll()
 	{
 		std::lock_guard lock(gLock);
-		if (!Config().enabled) {
+		if (!gEnabled) {
 			return;
 		}
 		for (auto& [light, seen] : gLights) {
