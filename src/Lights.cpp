@@ -93,12 +93,15 @@ namespace Plugin
 			bool                     verdictKnown{ false };
 			const void*              verdictWeapon{ nullptr };
 			const void*              verdictEnch{ nullptr };
+			RE::FormID               verdictEnchID{ 0 };  // with the pointer: an enchantment freed and made again is another
 			std::uint32_t            verdictRules{ 0 };
 			Settings                 verdictSettings{};
 			float                    fraction{ 1.0f };
 			std::vector<Root>        effectRoots;  // enchantment effects' attach roots, from the reference-effect hooks
 			std::size_t              lights{ 0 }, roots{ 0 };
 			std::string              actorName;
+			std::string              weaponLabel, enchLabel;  // made on the main thread, for the Debug page and DevBench
+			float                    chargeAV{ -1.0f };       // the game's own item-charge value, read on the main thread
 		};
 
 		std::mutex                                     gLock;  // the player update and the effect hooks may be on different threads
@@ -142,14 +145,18 @@ namespace Plugin
 			return nullptr;
 		}
 
-		void ApplyLight(RE::NiPointLight* a_light, const HandTrack& a_hand)
+		// a_found: the light was found under the hand this frame (a re-apply of this frame's numbers does not count, or a
+		// light that has left the weapon would never be let go)
+		void ApplyLight(RE::NiPointLight* a_light, const HandTrack& a_hand, bool a_found = true)
 		{
 			auto [it, added] = gLights.try_emplace(a_light);
 			auto& seen = it->second;
 			if (added) {
 				seen.light.reset(a_light);
 			}
-			seen.frame = gFrame;
+			if (a_found) {
+				seen.frame = gFrame;
+			}
 			seen.hand = Key(a_hand.actor, a_hand.left);
 			auto&       data = a_light->GetLightRuntimeData();
 			const auto& t = a_hand.verdict.tuning;
@@ -181,7 +188,8 @@ namespace Plugin
 
 		void RestoreShader(ShaderSeen& a_seen)
 		{
-			auto* data = a_seen.effect ? a_seen.effect->effectShaderData : nullptr;
+			// a finished effect's shader data may already be gone: nothing to put back on it
+			auto* data = a_seen.effect && !a_seen.effect->finished ? a_seen.effect->effectShaderData : nullptr;
 			if (data) {
 				data->fillColor.alpha = a_seen.fill.Restore(data->fillColor.alpha);
 				data->rimColor.alpha = a_seen.rim.Restore(data->rimColor.alpha);
@@ -227,9 +235,11 @@ namespace Plugin
 			}
 		}
 
-		std::vector<RE::NiPointer<RE::Actor>> Actors(Who a_who)
+		// the actors whose hands are read this frame, in a list kept from frame to frame (no allocation once it has grown)
+		std::vector<RE::NiPointer<RE::Actor>>& Actors(Who a_who)
 		{
-			std::vector<RE::NiPointer<RE::Actor>> out;
+			static std::vector<RE::NiPointer<RE::Actor>> out;
+			out.clear();
 			auto*                                 player = RE::PlayerCharacter::GetSingleton();
 			if (player && player->Is3DLoaded()) {
 				out.emplace_back(player);
@@ -353,6 +363,10 @@ namespace Plugin
 		}
 		auto&      preview = PreviewState();
 		const bool pulseNow = preview.pulse.exchange(false);
+		const bool previewOn = preview.on;
+		static bool previewWas = false;
+		const bool  previewToggled = previewOn != previewWas;
+		previewWas = previewOn;
 		const bool flareNow = preview.flare.exchange(false);
 		for (auto& actor : Actors(s.who)) {
 			for (const bool left : { false, true }) {
@@ -368,14 +382,21 @@ namespace Plugin
 					continue;
 				}
 				// the verdict changes only with the weapon, the settings or the rules: worked out again only then
-				if (!h.verdictKnown || h.verdictWeapon != h.reading.weapon || h.verdictEnch != h.reading.ench || h.verdictRules != RulesGeneration() ||
+				if (!h.verdictKnown || h.verdictWeapon != h.reading.weapon || h.verdictEnch != h.reading.ench ||
+					h.verdictEnchID != (h.reading.ench ? h.reading.ench->GetFormID() : 0) || h.verdictRules != RulesGeneration() ||
 					!(h.verdictSettings == s)) {
 					h.verdict = Judge(h.reading.weapon, h.reading.ench, s);
 					h.verdictKnown = true;
 					h.verdictWeapon = h.reading.weapon;
 					h.verdictEnch = h.reading.ench;
+					h.verdictEnchID = h.reading.ench ? h.reading.ench->GetFormID() : 0;
 					h.verdictRules = RulesGeneration();
 					h.verdictSettings = s;
+					h.weaponLabel = Label(h.reading.weapon);
+					h.enchLabel = h.reading.ench ? Label(h.reading.ench) : std::string(h.reading.bound ? "(bound weapon)" : "(none)");
+				}
+				if (auto* av = actor->AsActorValueOwner()) {
+					h.chargeAV = av->GetActorValue(left ? RE::ActorValue::kLeftItemCharge : RE::ActorValue::kRightItemCharge);
 				}
 				if (h.verdict.mode == Mode::kExempt) {
 					if (h.active || h.weapon != h.reading.weapon) {
@@ -396,8 +417,11 @@ namespace Plugin
 				} else {
 					h.fraction = h.reading.fraction;
 				}
-				if (preview.on) {  // before a new weapon's reset, so the preview's charge is not taken as a hit or a refill
+				if (previewOn) {  // before a new weapon's reset, so the preview's charge is not taken as a hit or a refill
 					h.fraction = Glow::Clamp01(preview.fraction);
+				}
+				if (previewToggled) {
+					h.glow.lastFraction = h.fraction;  // the preview going on or off is not a hit or a refill either
 				}
 				if (!h.active || h.weapon != h.reading.weapon || h.instance != h.reading.instance) {
 					h.weapon = h.reading.weapon;
@@ -416,7 +440,8 @@ namespace Plugin
 					h.glow.TriggerFlare();
 				}
 				h.active = true;
-				h.out = Glow::Step(h.verdict.tuning, h.glow, h.fraction, a_delta);
+				const bool timed = h.reading.bound && h.verdict.mode == Mode::kBound;  // a spell's time left, not a charge
+				h.out = Glow::Step(h.verdict.tuning, h.glow, h.fraction, a_delta, timed);
 				if ((h.out.pulsed || h.out.flared) && s.debugLog) {
 					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
@@ -434,7 +459,7 @@ namespace Plugin
 		gActiveHands = static_cast<std::size_t>(std::ranges::count_if(gHands, [](const auto& kv) { return kv.second.active; }));
 	}
 
-	void AfterReferenceEffect(RE::ReferenceEffect* a_effect)
+	void AfterReferenceEffect(RE::ReferenceEffect* a_effect, bool a_own3D)
 	{
 		if (gActiveHands.load(std::memory_order_relaxed) == 0) {
 			return;
@@ -454,8 +479,9 @@ namespace Plugin
 			return;
 		}
 		auto& hand = it->second;
-		// the effect's own 3D (the art model) and the root it hangs on; Light Placer hangs its lights under the root
-		std::array<RE::NiAVObject*, 2> nodes{ root, a_effect->Get3D() };
+		// the root the effect hangs on (Light Placer hangs its lights there), and an art effect's own model. Not a shader
+		// effect's own 3D: that is the whole actor it glows over, torch and armour lights and all
+		std::array<RE::NiAVObject*, 2> nodes{ root, a_own3D ? a_effect->Get3D() : nullptr };
 		for (auto* node : nodes) {
 			if (!node) {
 				continue;
@@ -512,7 +538,7 @@ namespace Plugin
 			}
 			const auto it = gHands.find(seen.hand);
 			if (it != gHands.end() && it->second.active) {
-				ApplyLight(light, it->second);
+				ApplyLight(light, it->second, false);
 			}
 		}
 	}
@@ -543,8 +569,8 @@ namespace Plugin
 			HandView v;
 			v.actor = h.actorName;
 			v.left = h.left;
-			v.weapon = Label(h.reading.weapon);
-			v.enchantment = h.reading.ench ? Label(h.reading.ench) : std::string(h.reading.bound ? "(bound weapon)" : "(none)");
+			v.weapon = h.weaponLabel;
+			v.enchantment = h.enchLabel;
 			v.why = h.verdict.why;
 			v.bound = h.reading.bound;
 			v.exempt = !h.active;
@@ -556,11 +582,7 @@ namespace Plugin
 			v.cool = h.active ? h.out.cool : 0.0f;
 			v.lights = h.lights;
 			v.roots = h.roots;
-			if (auto actor = h.actor.get()) {
-				if (auto* av = actor->AsActorValueOwner()) {
-					v.chargeAV = av->GetActorValue(h.left ? RE::ActorValue::kLeftItemCharge : RE::ActorValue::kRightItemCharge);
-				}
-			}
+			v.chargeAV = h.chargeAV;  // nothing of the game is touched here: this runs on the menu's and DevBench's threads
 			out.push_back(std::move(v));
 		}
 		std::ranges::sort(out, {}, [](const HandView& v) { return std::make_pair(v.actor, v.left); });

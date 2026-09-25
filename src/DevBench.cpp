@@ -28,68 +28,64 @@ namespace Plugin
 		constexpr const char* kMenu =
 			R"({"description":"Waning Glow - the Debug page's preview: set=preview value=charge 0..1 (-1 stops), set=pulse, set=flare; set=reloadrules; set=setting key=<WaningGlow.ini key> value=<whole number> flips a Settings-page switch or slider. Not saved from here.","inputSchema":{"type":"object","properties":{"set":{"type":"string"},"key":{"type":"string"},"value":{"type":"number"}}}})";
 
-		// a_s as the contents of a JSON string: quotes, backslashes and control characters escaped, and a byte that is not
-		// UTF-8 (a name in the ANSI code page) replaced, so the reply is always valid JSON
-		std::string Escaped(std::string_view a_s)
-		{
-			const auto quoted = nlohmann::json(std::string(a_s)).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
-			return quoted.substr(1, quoted.size() - 2);
-		}
+		using json = nlohmann::json;
+
+		// what Inspect replies, built as JSON so every string is escaped (a name in the ANSI code page is replaced, not
+		// passed through) and a number that is not finite is null, never "nan": the reply is always valid
+		std::string Dump(const json& a_j) { return a_j.dump(-1, ' ', false, json::error_handler_t::replace); }
 
 		void Inspect(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write)
 		{
 			if (!a_write) {
 				return;
 			}
-			std::string json = R"({"hands":[)";
-			bool        first = true;
+			json out;
+			out["hands"] = json::array();
 			for (const auto& h : Snapshot()) {
-				json += std::format(R"({}{{"actor":"{}","left":{},"weapon":"{}","enchantment":"{}","bound":{},"exempt":{},"fraction":{:.3f},"current":{:.1f},"max":{:.1f},"brightness":{:.3f},"reach":{:.3f},"cool":{:.3f},"lights":{},"roots":{},"why":"{}"}})",
-					first ? "" : ",", Escaped(h.actor), h.left, Escaped(h.weapon), Escaped(h.enchantment), h.bound, h.exempt, h.fraction,
-					h.current, h.max, h.brightness, h.reach, h.cool, h.lights, h.roots, Escaped(h.why));
-				first = false;
+				out["hands"].push_back({ { "actor", h.actor }, { "left", h.left }, { "weapon", h.weapon }, { "enchantment", h.enchantment },
+					{ "bound", h.bound }, { "exempt", h.exempt }, { "fraction", h.fraction }, { "current", h.current }, { "max", h.max },
+					{ "brightness", h.brightness }, { "reach", h.reach }, { "cool", h.cool }, { "lights", h.lights }, { "roots", h.roots },
+					{ "why", h.why } });
 			}
-			json += R"(],"lights":[)";
-			first = true;
+			out["lights"] = json::array();
 			for (const auto& l : LightsNow()) {
-				json += std::format(R"({}{{"fade":{:.4f},"base":{:.4f},"radius":{:.1f},"frozen":{}}})", first ? "" : ",", l.fade, l.base,
-					l.radius, l.frozen);
-				first = false;
+				out["lights"].push_back({ { "fade", l.fade }, { "base", l.base }, { "radius", l.radius }, { "frozen", l.frozen } });
 			}
 			const auto& p = PreviewState();
 			const auto  s = Config();
-			json += std::format(
-				R"(],"preview":{},"previewCharge":{:.2f},"rules":{},"ruleFiles":{},"problems":{},"enabled":{},"floor":{:.2f},"curve":{},"reachFollows":{:.2f},"sputter":{},"cool":{},"pulse":{},"flare":{},"staves":{},"bound":{},"who":{},"dimShader":{}}})",
-				p.on.load(), p.fraction.load(), RuleCount(), RuleFileCount(), RuleProblems().size(), s.enabled, s.tuning.floor,
-				static_cast<int>(s.tuning.curve), s.tuning.reachFollows, s.tuning.sputter, s.tuning.cool, s.tuning.pulse, s.tuning.flare,
-				s.staves, s.bound, static_cast<int>(s.who), s.dimShader);
-			a_write(a_sink, json.c_str());
+			out["preview"] = p.on.load();
+			out["previewCharge"] = p.fraction.load();
+			out["rules"] = RuleCount();
+			out["ruleFiles"] = RuleFileCount();
+			out["problems"] = RuleProblems().size();
+			out["enabled"] = s.enabled;
+			out["floor"] = s.tuning.floor;
+			out["curve"] = static_cast<int>(s.tuning.curve);
+			out["reachFollows"] = s.tuning.reachFollows;
+			out["sputter"] = s.tuning.sputter;
+			out["cool"] = s.tuning.cool;
+			out["pulse"] = s.tuning.pulse;
+			out["flare"] = s.tuning.flare;
+			out["staves"] = s.staves;
+			out["bound"] = s.bound;
+			out["who"] = static_cast<int>(s.who);
+			out["dimShader"] = s.dimShader;
+			a_write(a_sink, Dump(out).c_str());
 		}
 
-		std::string Field(std::string_view a_json, std::string_view a_key)
+		// one field of DevBench's arguments, as text ("" when it is missing or not a string or number)
+		std::string Field(const json& a_args, const char* a_key)
 		{
-			const auto k = a_json.find(std::format("\"{}\"", a_key));
-			if (k == std::string_view::npos) {
+			if (!a_args.is_object() || !a_args.contains(a_key)) {
 				return {};
 			}
-			auto i = a_json.find(':', k);
-			if (i == std::string_view::npos) {
-				return {};
-			}
-			++i;
-			while (i < a_json.size() && (a_json[i] == ' ' || a_json[i] == '"')) {
-				++i;
-			}
-			auto e = i;
-			while (e < a_json.size() && a_json[e] != '"' && a_json[e] != ',' && a_json[e] != '}') {
-				++e;
-			}
-			return std::string(a_json.substr(i, e - i));
+			const auto& v = a_args[a_key];
+			return v.is_string() ? v.get<std::string>() : v.is_number() ? v.dump() : std::string();
 		}
 
 		void Menu(void*, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write)
 		{
-			const std::string_view args{ a_args ? a_args : "" };
+			const auto args = json::parse(a_args ? a_args : "", nullptr, false);  // a discarded value (not an exception) if bad
 			const auto             set = Field(args, "set");
 			auto&                  p = PreviewState();
 			bool                   ok = true;

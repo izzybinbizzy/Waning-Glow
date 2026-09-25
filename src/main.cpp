@@ -55,7 +55,7 @@ namespace
 		static void thunk(T* a_this)
 		{
 			func(a_this);
-			Plugin::AfterReferenceEffect(a_this);
+			Plugin::AfterReferenceEffect(a_this, std::is_same_v<T, RE::ModelReferenceEffect>);  // an art model, not a shader's actor
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 		static void                                    Install()

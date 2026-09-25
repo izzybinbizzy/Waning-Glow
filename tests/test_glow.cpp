@@ -308,6 +308,65 @@ namespace
 		}
 	}
 
+	// the shapes a light's owner animates it with - triangles, ramps from dark, a fade-in - at 30, 60 and 144 fps: the output is
+	// the owner's value times ours on every frame, give or take the loop probe's dither (0.5%) while a probe runs
+	void ScaledReleasesEveryShape()
+	{
+		auto triangle = [](float a_t, float a_lo, float a_hi, float a_ramp) {
+			const float p = std::fmod(a_t, 2.0f * a_ramp) / a_ramp;
+			return a_lo + (a_hi - a_lo) * (p < 1.0f ? p : 2.0f - p);
+		};
+		for (const float fps : { 30.0f, 60.0f, 144.0f }) {
+			for (int shape = 0; shape < 4; ++shape) {
+				Glow::Scaled s;
+				int          off = 0, frames = 0;
+				float        worst = 0.0f;
+				for (float t = 0.0f; t < 20.0f; t += 1.0f / fps) {
+					float owner = 0.0f;
+					switch (shape) {
+					case 0: owner = triangle(t, 0.5f, 1.0f, 2.0f); break;     // 2 s ramps between 0.5 and 1
+					case 1: owner = triangle(t, 0.02f, 1.0f, 1.0f); break;    // 1 s ramps up from nearly dark
+					case 2: owner = (std::min)(1.0f, 0.1f + t * 0.3f); break; // a 3 s fade-in, then steady
+					default: owner = 0.6f + 0.35f * std::sin(t * 0.8f); break; // an 8 s swell
+					}
+					const float out = s.Apply(owner, 0.5f);
+					const float err = std::fabs(out - owner * 0.5f) / (owner * 0.5f);
+					off += err > 0.0051f ? 1 : 0;
+					worst = (std::max)(worst, err);
+					++frames;
+				}
+				if (std::getenv("GLOW_TRACE")) {
+					std::printf("shape %d at %.0f fps: %d of %d frames off, worst %.3f\n", shape, fps, off, frames, worst);
+				}
+				CHECK(off == 0);  // never more than the dither: no animation is ever pinned
+				CHECK(worst < 0.0051f);
+				CHECK(!s.frozen);
+			}
+		}
+	}
+
+	// a bound weapon's light fades with its spell's time: a clock running down is not a hit
+	void BoundFadeNeverPulses()
+	{
+		Glow::Tuning t;
+		for (const float fps : { 60.0f, 144.0f }) {
+			Glow::Hand h;
+			int        pulses = 0, flares = 0;
+			float      peak = 0.0f;
+			for (float s = 0.0f; s < 12.0f; s += 1.0f / fps) {
+				const float f = Glow::BoundFraction(s, 12.0f, 10.0f);  // the last 10 s of a 12 s spell
+				const auto  o = Glow::Step(t, h, f, 1.0f / fps, true);
+				pulses += o.pulsed ? 1 : 0;
+				flares += o.flared ? 1 : 0;
+				if (s > 2.2f) {
+					peak = (std::max)(peak, o.brightness);
+				}
+			}
+			CHECK(pulses == 0 && flares == 0);
+			CHECK(peak <= 1.0f + 1e-4f);  // it only ever dims
+		}
+	}
+
 	// a real loop stays caught for as long as it lasts, even while the other plugin's factor drifts slowly
 	void ScaledHoldsALongLoop()
 	{
@@ -573,6 +632,8 @@ int main()
 	RuleFiles();
 	ScaledReleasesAnAnimation();
 	ScaledHoldsALongLoop();
+	ScaledReleasesEveryShape();
+	BoundFadeNeverPulses();
 	ScaledHandlesNegativeValues();
 	SettingsFile();
 	std::printf("%d passed, %d failed\n", gPassed, gFailed);

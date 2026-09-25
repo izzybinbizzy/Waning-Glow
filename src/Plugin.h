@@ -78,7 +78,8 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ Lights.cpp: the lights on a weapon
 	void UpdateHands(float a_delta);                               // every frame, from the player's update
-	void AfterReferenceEffect(RE::ReferenceEffect* a_effect);      // after Light Placer's own per-effect update
+	void AfterReferenceEffect(RE::ReferenceEffect* a_effect, bool a_own3D);  // after Light Placer's per-effect update;
+	                                                                          // a_own3D: search the effect's own model too
 	void AfterShaderEffect(RE::ShaderReferenceEffect* a_effect);   // after the game animates an enchantment's shader
 	void ReapplyAll();                                              // after the cell's light animation: this frame's numbers again
 	void ReleaseAll();                                              // every light back as we found it
