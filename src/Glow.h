@@ -118,7 +118,8 @@ namespace Glow
 		float pulseAge{ 1e9f };
 		float pulseSize{ 0.0f };
 		float flareAge{ 1e9f };
-		float sinceFall{ 1e9f };  // seconds since the charge last fell (by more than kSpendStep in a frame)
+		float sinceFall{ 1e9f };  // seconds since the charge last fell at all
+		float fallRate{ 0.0f };   // the fastest the charge has fallen lately, per second (let go over kFallRateSeconds)
 		// sputter: time into the current step, how long it lasts, the level it holds
 		float stepAge{ 0.0f }, stepLength{ 0.0f }, stepLevel{ 1.0f };
 		Rng   rng{};
@@ -137,6 +138,7 @@ namespace Glow
 			shown = a_fraction;
 			lastFraction = a_fraction;
 			pulseAge = flareAge = sinceFall = 1e9f;
+			fallRate = 0.0f;
 			pulseSize = 0.0f;
 			stepAge = stepLength = 0.0f;
 			stepLevel = 1.0f;
@@ -156,10 +158,16 @@ namespace Glow
 	// charge that fell by more than this counts as spent on a hit; rose by more, as a recharge
 	inline constexpr float kSpendStep = 0.0005f;
 	inline constexpr float kRefillStep = 0.01f;
-	// a hit is a fall that STARTS: one after at least this long without a fall. A charge drained steadily (a
-	// concentration staff, a mod that drains charge over time) falls every frame, or in steps a few times a second, and
-	// that is one pulse when it starts, not one every frame
+	// A hit is a fall that stands out. A charge drained steadily (a concentration staff, a mod that drains charge over time)
+	// falls every frame, by more on a long frame, or in steps a few times a second; none of that is a hit. So a fall past
+	// kSpendStep is a hit only when it:
+	//   - comes after kHitQuietSeconds with no fall at all (the usual hit: nothing was draining), or
+	//   - is kHitRatio times what the recent drain rate would take in this frame (a hit while a drain runs).
+	// A steady drain is one pulse when it starts. A drain in steps further apart than kHitQuietSeconds does pulse on each
+	// step: by the numbers it cannot be told from hits that far apart.
 	inline constexpr float kHitQuietSeconds = 0.25f;
+	inline constexpr float kHitRatio = 4.0f;
+	inline constexpr float kFallRateSeconds = 0.25f;  // how long the recent drain rate is remembered (a hit feeds it too)
 
 	[[nodiscard]] inline float Ease(float a_from, float a_to, float a_dt, float a_seconds) noexcept
 	{
@@ -189,18 +197,25 @@ namespace Glow
 		if (a_timed) {
 			// a clock: no moments
 		} else if (delta < -kSpendStep) {
-			if (a_t.pulse && a_h.sinceFall >= kHitQuietSeconds) {
+			const bool quiet = a_h.sinceFall >= kHitQuietSeconds;
+			const bool standsOut = -delta > kHitRatio * a_h.fallRate * a_dt + kSpendStep;
+			if (a_t.pulse && (quiet || standsOut)) {
 				a_h.pulseAge = 0.0f;
 				a_h.pulseSize = a_t.pulseStrength * (std::max)(a_h.shown, 0.25f);  // a near-empty hit still shows
 				out.pulsed = true;
 			}
-			a_h.sinceFall = 0.0f;
 		} else if (delta > kRefillStep && a_t.flare) {
 			a_h.flareAge = 0.0f;
 			out.flared = true;
 		}
 		a_h.lastFraction = a_fraction;
-		if (delta >= -kSpendStep || a_timed) {
+		// every fall is drain activity, however small (a clock's fall is not): it resets the quiet time and feeds the rate,
+		// which rises at once and is let go over about a quarter second
+		a_h.fallRate *= std::exp(-a_dt / kFallRateSeconds);
+		if (delta < 0.0f && !a_timed) {
+			a_h.sinceFall = 0.0f;
+			a_h.fallRate = (std::max)(a_h.fallRate, -delta / (std::max)(a_dt, 0.001f));
+		} else {
 			a_h.sinceFall = (std::min)(a_h.sinceFall + a_dt, 1e9f);
 		}
 

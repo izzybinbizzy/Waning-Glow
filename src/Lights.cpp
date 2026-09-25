@@ -81,6 +81,7 @@ namespace Plugin
 		struct HandTrack
 		{
 			RE::ActorHandle          actor;
+			const RE::Actor*         actorSeen{ nullptr };  // the actor as last read on the main thread: only compared, never used
 			bool                     left{ false };
 			bool                     active{ false };
 			std::uint32_t            frame{ 0 };
@@ -239,9 +240,11 @@ namespace Plugin
 		}
 
 		// the actors whose hands are read this frame, in a list kept from frame to frame (no allocation once it has grown)
+		std::vector<RE::NiPointer<RE::Actor>> gActors;  // emptied by ReleaseAll, so no actor is held across a load
+
 		std::vector<RE::NiPointer<RE::Actor>>& Actors(Who a_who)
 		{
-			static std::vector<RE::NiPointer<RE::Actor>> out;
+			auto& out = gActors;
 			out.clear();
 			auto*                                 player = RE::PlayerCharacter::GetSingleton();
 			if (player && player->Is3DLoaded()) {
@@ -285,13 +288,19 @@ namespace Plugin
 			std::erase_if(gHands, [](const auto& kv) { return gFrame - kv.second.frame > kForgetHand; });
 		}
 
-		const HandTrack* ActiveHand(RE::Actor* a_actor, bool a_left)
+		// by the actor's address, not its handle: this runs on any thread (the API), and making a handle is the game's to do.
+		// A handful of hands at most, so a walk is as quick as a lookup
+		const HandTrack* ActiveHand(const RE::Actor* a_actor, bool a_left)
 		{
 			if (!a_actor) {
 				return nullptr;
 			}
-			const auto it = gHands.find(Key(a_actor->GetHandle(), a_left));
-			return it != gHands.end() && it->second.active ? &it->second : nullptr;
+			for (const auto& [key, h] : gHands) {
+				if (h.active && h.left == a_left && h.actorSeen == a_actor) {
+					return &h;
+				}
+			}
+			return nullptr;
 		}
 
 		// the hand an enchantment effect belongs to, and its actor; false when it is not a weapon enchantment's
@@ -375,6 +384,7 @@ namespace Plugin
 			for (const bool left : { false, true }) {
 				auto& h = gHands[Key(actor->GetHandle(), left)];
 				h.actor = actor->GetHandle();
+				h.actorSeen = actor.get();
 				h.left = left;
 				h.frame = gFrame;
 				h.reading = ReadHand(actor.get(), left);
@@ -451,6 +461,7 @@ namespace Plugin
 		for (auto& [key, hand] : gHands) {
 			if (hand.frame != gFrame) {
 				hand.active = false;
+				hand.effectRoots.clear();  // its effects' 3D is not ours to keep
 			}
 		}
 		Sweep();
@@ -553,6 +564,7 @@ namespace Plugin
 		gLights.clear();
 		gShaders.clear();
 		gHands.clear();
+		gActors.clear();
 		gActiveHands = 0;
 	}
 

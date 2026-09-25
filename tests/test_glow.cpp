@@ -419,6 +419,53 @@ namespace
 		}
 	}
 
+	// WG-R5-1: a steady drain with the odd long frame (a hitch) is still one pulse; a hit while a drain runs still pulses
+	int DrainPulses(float a_fps, float a_perSecond, int a_longEvery, float a_longSeconds, float a_seconds, std::uint32_t a_seed)
+	{
+		Glow::Tuning t;
+		Glow::Hand   h;
+		Glow::Rng    r{ a_seed };
+		int          pulses = 0;
+		float        f = 1.0f;
+		for (float s = 0.0f; s < a_seconds;) {
+			const bool  isLong = a_longEvery > 0 ? r.Next() < 1.0f / static_cast<float>(a_longEvery) : false;
+			const float dt = isLong ? a_longSeconds : 1.0f / a_fps;
+			s += dt;
+			f = (std::max)(0.0f, f - a_perSecond * dt);
+			pulses += Glow::Step(t, h, f, dt).pulsed ? 1 : 0;
+		}
+		return pulses;
+	}
+
+	void DrainWithHitchesPulsesOnce()
+	{
+		for (const float fps : { 30.0f, 60.0f, 144.0f }) {
+			for (const float perSecond : { 0.005f, 0.01f, 0.02f, 0.04f, 0.1f }) {
+				for (const int every : { 50, 20, 5 }) {  // 2%, 5% and 20% of frames
+					for (const float hitch : { 0.05f, 0.1f, 0.25f }) {
+						CHECK(DrainPulses(fps, perSecond, every, hitch, 30.0f, 1234u + static_cast<std::uint32_t>(every)) <= 1);
+					}
+				}
+			}
+		}
+		// a hit of 5% every 0.8 s while a slow drain runs: each one pulses
+		for (const float fps : { 30.0f, 60.0f, 144.0f }) {
+			Glow::Tuning t;
+			Glow::Hand   h;
+			int          pulses = 0;
+			float        f = 1.0f;
+			const int    hitEvery = static_cast<int>(0.8f * fps);
+			for (int frame = 0; frame < static_cast<int>(fps) * 4; ++frame) {
+				f -= 0.01f / fps;
+				if (frame > 0 && frame % hitEvery == 0) {
+					f -= 0.05f;
+				}
+				pulses += Glow::Step(t, h, f, 1.0f / fps).pulsed ? 1 : 0;
+			}
+			CHECK(pulses == (static_cast<int>(fps) * 4 - 1) / hitEvery);  // every hit (the drain is too slow to be a fall worth one)
+		}
+	}
+
 	// the hand's light follows the right thing: a bound weapon a rule treats as bound is a clock (so it never pulses)
 	void FollowOfBoundAndCharged()
 	{
@@ -702,6 +749,7 @@ int main()
 	ScaledReleasesEveryShape();
 	BoundFadeNeverPulses();
 	SteadyDrainPulsesOnce();
+	DrainWithHitchesPulsesOnce();
 	FollowOfBoundAndCharged();
 	ScaledHandlesNegativeValues();
 	SettingsFile();

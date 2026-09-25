@@ -34,7 +34,7 @@ namespace Plugin
 		// passed through) and a number that is not finite is null, never "nan": the reply is always valid
 		std::string Dump(const json& a_j) { return a_j.dump(-1, ' ', false, json::error_handler_t::replace); }
 
-		void Inspect(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write)
+		void InspectNow(void*, const char*, void* a_sink, DevBenchAPI::WriteFn a_write)
 		{
 			if (!a_write) {
 				return;
@@ -80,10 +80,17 @@ namespace Plugin
 				return {};
 			}
 			const auto& v = a_args[a_key];
+			if (v.is_number_float()) {
+				// a whole number sent as 5.0 is still 5 (an int setting reads "5", not "5.0")
+				const double d = v.get<double>();
+				if (std::isfinite(d) && d == std::trunc(d) && std::abs(d) < 1e9) {
+					return std::to_string(static_cast<long long>(d));
+				}
+			}
 			return v.is_string() ? v.get<std::string>() : v.is_number() ? v.dump() : std::string();
 		}
 
-		void Menu(void*, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write)
+		void MenuNow(void*, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write)
 		{
 			const auto args = json::parse(a_args ? a_args : "", nullptr, false);  // a discarded value (not an exception) if bad
 			const auto             set = Field(args, "set");
@@ -115,6 +122,29 @@ namespace Plugin
 			if (a_write) {
 				a_write(a_sink, ok ? R"({"queued":true})" :
 				                     R"({"queued":false,"error":"set is preview, pulse, flare, setting (key, value) or reloadrules"})");
+			}
+		}
+
+		// DevBench calls these across the DLL boundary: nothing may be thrown back through it
+		void Inspect(void* a_ctx, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
+		{
+			try {
+				InspectNow(a_ctx, a_args, a_sink, a_write);
+			} catch (...) {
+				if (a_write) {
+					a_write(a_sink, R"({"error":"Waning Glow could not build its report"})");
+				}
+			}
+		}
+
+		void Menu(void* a_ctx, const char* a_args, void* a_sink, DevBenchAPI::WriteFn a_write) noexcept
+		{
+			try {
+				MenuNow(a_ctx, a_args, a_sink, a_write);
+			} catch (...) {
+				if (a_write) {
+					a_write(a_sink, R"({"queued":false,"error":"Waning Glow could not handle that"})");
+				}
 			}
 		}
 	}
