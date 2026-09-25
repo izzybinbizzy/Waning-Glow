@@ -466,6 +466,61 @@ namespace
 		}
 	}
 
+	// WG-R6-1: a drain on its own clock - spent a frame late after a hitch, or in steps with uneven frames - is not hits
+	void DrainOnItsOwnClock()
+	{
+		Glow::Tuning t;
+		for (const float perSecond : { 0.005f, 0.01f, 0.02f, 0.05f, 0.1f }) {
+			for (const float hitch : { 0.1f, 0.25f, 1.0f, 2.0f }) {
+				Glow::Hand h;
+				Glow::Rng  r{ 99u };
+				int        pulses = 0;
+				float      f = 1.0f, owed = 0.0f;
+				for (int i = 0; i < 60 * 30; ++i) {
+					const float dt = r.Next() < 0.02f ? hitch : 1.0f / 60.0f;
+					f = (std::max)(0.0f, f - owed);  // last frame's drain, spent after our read
+					owed = perSecond * dt;
+					pulses += Glow::Step(t, h, f, dt).pulsed ? 1 : 0;
+				}
+				CHECK(pulses <= 1);
+			}
+		}
+		for (const float hz : { 3.5f, 4.0f, 4.5f, 5.0f, 6.0f, 10.0f }) {
+			Glow::Hand h;
+			Glow::Rng  r{ 7u };
+			int        pulses = 0;
+			float      f = 1.0f, clock = 0.0f;
+			for (int i = 0; i < 60 * 30; ++i) {
+				const float dt = 0.008f + 0.017f * r.Next();  // 8 to 25 ms frames
+				clock += dt;
+				if (clock >= 1.0f / hz) {
+					clock -= 1.0f / hz;
+					f = (std::max)(0.0f, f - 0.01f);
+				}
+				pulses += Glow::Step(t, h, f, dt).pulsed ? 1 : 0;
+			}
+			CHECK(pulses <= 1);
+		}
+		// hits of 5% half a second apart while a stepped drain runs: each one pulses
+		{
+			Glow::Hand h;
+			int        pulses = 0, hits = 0;
+			float      f = 1.0f;
+			for (int i = 1; i < 60 * 5; ++i) {
+				if (i % 12 == 0) {
+					f -= 0.005f;  // 5 Hz steps
+				}
+				if (i % 30 == 0) {
+					f -= 0.05f;
+					++hits;
+				}
+				pulses += Glow::Step(t, h, f, 1.0f / 60.0f).pulsed ? 1 : 0;
+			}
+			CHECK(pulses >= hits);
+			CHECK(pulses <= hits + 1);  // and at most the drain's start besides
+		}
+	}
+
 	// the hand's light follows the right thing: a bound weapon a rule treats as bound is a clock (so it never pulses)
 	void FollowOfBoundAndCharged()
 	{
@@ -750,6 +805,7 @@ int main()
 	BoundFadeNeverPulses();
 	SteadyDrainPulsesOnce();
 	DrainWithHitchesPulsesOnce();
+	DrainOnItsOwnClock();
 	FollowOfBoundAndCharged();
 	ScaledHandlesNegativeValues();
 	SettingsFile();

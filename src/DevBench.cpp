@@ -97,12 +97,18 @@ namespace Plugin
 			auto&                  p = PreviewState();
 			bool                   ok = true;
 			if (set == "preview") {
-				const float v = static_cast<float>(std::atof(Field(args, "value").c_str()));
-				const bool  on = std::isfinite(v) && v >= 0.0f;
-				if (on) {
-					p.fraction = Glow::Clamp01(v);
+				// value: the charge to preview, 0 to 1; a negative number turns the preview off; no number is refused
+				const std::string text = Field(args, "value");
+				float             v = 0.0f;
+				const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), v);  // not the C locale's
+				if (text.empty() || ec != std::errc{} || end != text.data() + text.size() || !std::isfinite(v)) {
+					ok = false;
+				} else {
+					if (v >= 0.0f) {
+						p.fraction = Glow::Clamp01(v);
+					}
+					p.on = v >= 0.0f;
 				}
-				p.on = on;
 			} else if (set == "pulse") {
 				p.pulse = true;
 			} else if (set == "flare") {
