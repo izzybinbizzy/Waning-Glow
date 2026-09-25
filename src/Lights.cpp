@@ -100,6 +100,9 @@ namespace Plugin
 		std::unordered_map<std::uint64_t, HandTrack>   gHands;
 		std::unordered_map<RE::NiLight*, LightSeen>    gLights;
 		std::unordered_map<const void*, ShaderSeen>    gShaders;
+		// how many hands are active, read without the lock by the effect hooks: every art and shader effect in the world
+		// calls them each frame, and with no enchanted weapon out they need not look up (RTTI) whose effect it is
+		std::atomic<std::size_t>                       gActiveHands{ 0 };
 
 		[[nodiscard]] std::uint64_t Key(RE::ActorHandle a_actor, bool a_left)
 		{
@@ -334,6 +337,7 @@ namespace Plugin
 			gLights.clear();
 			gShaders.clear();
 			gHands.clear();
+			gActiveHands = 0;
 			return;
 		}
 		auto&      preview = PreviewState();
@@ -398,10 +402,14 @@ namespace Plugin
 			}
 		}
 		Sweep();
+		gActiveHands = static_cast<std::size_t>(std::ranges::count_if(gHands, [](const auto& kv) { return kv.second.active; }));
 	}
 
 	void AfterReferenceEffect(RE::ReferenceEffect* a_effect)
 	{
+		if (gActiveHands.load(std::memory_order_relaxed) == 0) {
+			return;
+		}
 		RE::Actor*      actor = nullptr;
 		bool            left = false;
 		RE::NiAVObject* root = nullptr;
@@ -435,7 +443,7 @@ namespace Plugin
 
 	void AfterShaderEffect(RE::ShaderReferenceEffect* a_effect)
 	{
-		if (!Config().dimShader) {
+		if (!Config().dimShader || gActiveHands.load(std::memory_order_relaxed) == 0) {
 			return;
 		}
 		RE::Actor*      actor = nullptr;
@@ -491,6 +499,7 @@ namespace Plugin
 		gLights.clear();
 		gShaders.clear();
 		gHands.clear();
+		gActiveHands = 0;
 	}
 
 	std::vector<HandView> Snapshot()

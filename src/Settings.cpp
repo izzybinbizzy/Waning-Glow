@@ -170,7 +170,9 @@ namespace Plugin
 
 	void SaveSettings()
 	{
-		std::ofstream out(kPath, std::ios::trunc);
+		// written beside the file, then moved over it: a crash or a full disk mid-write leaves the old settings, never half a file
+		const std::string tmp = std::string(kPath) + ".tmp";
+		std::ofstream     out(tmp, std::ios::trunc);
 		if (!out) {
 			SKSE::log::warn("settings: {} could not be written", kPath);
 			return;
@@ -200,5 +202,13 @@ namespace Plugin
 			<< "Who=" << static_cast<int>(s.who) << "\n"
 			<< "DimShader=" << (s.dimShader ? 1 : 0) << "\n"
 			<< "DebugLog=" << (s.debugLog ? 1 : 0) << "\n";
+		out.close();
+		std::error_code ec;
+		if (!out) {
+			SKSE::log::warn("settings: {} could not be written", kPath);
+		} else if (std::filesystem::rename(tmp, kPath, ec); ec) {
+			SKSE::log::warn("settings: {} could not be replaced ({})", kPath, ec.message());
+		}
+		std::filesystem::remove(tmp, ec);  // nothing left behind when the move failed
 	}
 }
