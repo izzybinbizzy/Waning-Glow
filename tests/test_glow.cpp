@@ -517,6 +517,27 @@ namespace
 			}
 			CHECK(pulses == hits);
 		}
+		// WG-R8-1: a drain in 5 Hz steps with 250 ms hitches at a steady 20 fps is not hits (a hitch's let-go was a whole
+		// 50 ms frame: up to 6 pulses). At 30-60 fps a hitch that swallows two steps can still read as a hit: see Glow.h
+		for (const float fps : { 20.0f }) {
+			for (std::uint32_t seed = 1; seed <= 20; ++seed) {
+				Glow::Hand h;
+				Glow::Rng  r{ seed * 2654435761u };
+				int        pulses = 0;
+				float      f = 1.0f, clock = 0.0f;
+				for (float s = 0.0f; s < 30.0f;) {
+					const float dt = r.Next() < 0.02f ? 0.25f : 1.0f / fps;
+					s += dt;
+					clock += dt;
+					while (clock >= 0.2f) {
+						clock -= 0.2f;
+						f = (std::max)(0.0f, f - 0.004f);  // 0.02 a second in 5 Hz steps
+					}
+					pulses += Glow::Step(t, h, f, dt).pulsed ? 1 : 0;
+				}
+				CHECK(pulses <= 2);
+			}
+		}
 		// hits of 5% half a second apart while a stepped drain runs: each one pulses
 		{
 			Glow::Hand h;

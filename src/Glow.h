@@ -167,7 +167,8 @@ namespace Glow
 	//   - what the recent drain rate takes over this frame and the one before (a fall may be a frame late),
 	// both let go over kFallRateSeconds (the rate faster while the charge holds still). A steady drain is one pulse when it starts; a hit while a drain runs still stands
 	// out. What cannot be told apart by the numbers: two like hits within about a third of a second are one pulse (the
-	// first raises the bar), and a drain in steps further apart than about a third of a second pulses on each step.
+	// first raises the bar); a drain in steps further apart than about a third of a second pulses on each step; and a
+	// hitch that swallows two or more of a stepped drain's steps can read as one hit.
 	inline constexpr float kHitRatio = 4.0f;
 	inline constexpr float kFallRateSeconds = 0.25f;  // how long the recent drain is remembered (a hit counts too)
 	inline constexpr float kStillSeconds = 0.05f;     // how fast the drain rate is let go while the charge holds still
@@ -200,10 +201,11 @@ namespace Glow
 
 		// what changed since last frame
 		const float delta = a_fraction - a_h.lastFraction;
-		// let go by time, but across a single frame much longer than the one before (a hitch) by no more than that one's
-		// worth: a hitch is not a pause in the drain, and what it owes comes due on the frame after. A steady low frame rate
-		// is let go in real time
-		const float step = (std::min)(realDt, (std::max)(1.0f / 30.0f, a_h.lastDt));
+		// let go by time, but across a hitch (a frame more than twice the one before) by no more than the one before, and
+		// never more than 1/30 s: a hitch is not a pause in the drain, and what it owes comes due on the frame after. A
+		// steady low frame rate is let go in real time
+		const bool  hitch = a_h.lastDt > 0.0f && realDt > 2.0f * a_h.lastDt;
+		const float step = hitch ? (std::min)(a_h.lastDt, 1.0f / 30.0f) : realDt;
 		a_h.maxFall *= std::exp(-step / kFallRateSeconds);
 		// the rate is a drain's: it holds while the charge keeps falling, and is let go quickly on a frame where it does
 		// not (hits come with still frames between them, a drain does not)
