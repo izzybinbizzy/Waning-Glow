@@ -27,6 +27,8 @@
 //   Who=0                     0 the player, 1 the player and followers
 //   DimShader=0               experimental: the enchantment's glow shader follows the charge too
 //   DebugLog=0
+//   OwnLight=0                a weapon no other mod lights gets a light of Waning Glow's own
+//   OwnLightReach=160         its reach, in game units, 50 to 600
 //
 // Every value is a whole number. The file is read the way people edit it: a byte order mark (Notepad's), any case in
 // section and key names, spaces, Windows line ends, and ; or # comments, on their own line or after a value. A line
@@ -64,6 +66,8 @@ namespace Plugin
 		float        boundFadeSeconds{ 10.0f };
 		bool         dimShader{ false };  // experimental: the enchantment's glow shader follows the charge too
 		bool         debugLog{ false };
+		bool         ownLight{ false };     // a weapon no other mod lights gets a light of our own (OwnLight.cpp)
+		int          ownLightReach{ 160 };  // its reach, game units
 
 		bool operator==(const Settings&) const = default;
 	};
@@ -129,6 +133,8 @@ namespace Plugin
 			{ "Who", [](const Settings& s) { return static_cast<int>(s.who); }, [](Settings& s, int v) { s.who = static_cast<Who>(std::clamp(v, 0, 1)); } },
 			{ "DimShader", [](const Settings& s) { return s.dimShader ? 1 : 0; }, [](Settings& s, int v) { s.dimShader = v != 0; } },
 			{ "DebugLog", [](const Settings& s) { return s.debugLog ? 1 : 0; }, [](Settings& s, int v) { s.debugLog = v != 0; } },
+			{ "OwnLight", [](const Settings& s) { return s.ownLight ? 1 : 0; }, [](Settings& s, int v) { s.ownLight = v != 0; } },
+			{ "OwnLightReach", [](const Settings& s) { return s.ownLightReach; }, [](Settings& s, int v) { s.ownLightReach = std::clamp(v, 50, 600); } },
 		};
 
 		[[nodiscard]] inline bool SameText(std::string_view a, std::string_view b) noexcept

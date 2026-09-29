@@ -106,6 +106,15 @@ namespace Plugin
 	// what the API hands other plugins: the charge fraction and the multiplier on this hand's lights; false if untracked
 	[[nodiscard]] bool Query(RE::Actor* a_actor, bool a_left, float& a_fraction, float& a_brightness);
 
+	// ------------------------------------------------------------------ OwnLight.cpp: our own light, on a weapon no mod lights
+	inline constexpr const char* kOwnLightName = "WaningGlowLight";
+	// this frame, the hand `a_key` wants its own light on `a_model` (nullptr: it wants none): hung (in `a_ench`'s color),
+	// moved or dropped. Returns the light when one was hung just now (so it can take this frame's numbers), else nullptr
+	RE::NiPointLight* KeepOwnLight(std::uint64_t a_key, RE::NiAVObject* a_model, const RE::EnchantmentItem* a_ench, float a_reach);
+	void              SweepOwnLights();  // after every hand was seen this frame: the lights of hands that did not ask go
+	void              DropOwnLights();   // every one of them (switched off, a load)
+	[[nodiscard]] std::size_t OwnLightCount();
+
 	// ------------------------------------------------------------------ Menu.cpp
 	void RegisterMenu();
 

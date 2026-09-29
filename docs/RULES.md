@@ -16,7 +16,7 @@ restarting the game.
 ```json
 {
   "rules": [
-    { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x02ACD2"], "mode": "exempt" },
+    { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x04E4EE"], "mode": "exempt" },
     { "name": "Fire enchantments sputter longer", "effectKeywords": ["MagicDamageFire"], "sputterBelow": 30 },
     { "name": "Staves fade gently", "staff": true, "curve": "gentle", "emptyBrightness": 20 }
   ]
@@ -37,7 +37,7 @@ match.
 | `bound` | `true`: bound weapons only; `false`: never bound weapons |
 | `staff` | `true`: staves only; `false`: never staves |
 
-A form ID may carry a load-order prefix copied from xEdit (`0x0102ACD2`); it is ignored. A rule whose `weapons` or
+A form ID may carry a load-order prefix copied from xEdit (`0x0104E4EE`); it is ignored. A rule whose `weapons` or
 `enchantments` name only forms that aren't installed matches nothing (not everything); the log says so.
 
 ## What a rule sets
@@ -56,8 +56,8 @@ Anything a rule doesn't set keeps the value from the Settings page, or from an e
 | `emptySteady` | true / false | at exactly 0% the light holds still |
 | `hitPulse`, `hitPulseStrength` | true / false; 0 to 200 | the flash when a hit spends charge |
 | `rechargeFlare`, `rechargeFlareStrength` | true / false; 0 to 200 | the swell when a soul gem refills the weapon |
-| `colorCooling`, `colorCoolingAmount` | true / false; 0 to 100 | the colour draining near empty |
-| `colorCoolingTint` | `"grey"` (or `"gray"`), `"ember"` | what the colour drains toward |
+| `colorCooling`, `colorCoolingAmount` | true / false; 0 to 100 | the color draining near empty |
+| `colorCoolingTint` | `"grey"` (or `"gray"`), `"ember"` | what the color drains toward |
 | `boundFadeSeconds` | 1 to 60 | over how many of a bound spell's last seconds its light fades |
 | `name`, `comment` | text | for the log and the Debug page |
 

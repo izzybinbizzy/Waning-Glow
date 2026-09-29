@@ -7,7 +7,7 @@
 // resolves "Plugin.esp|0x123" to a form in this load order (through the Resolve it hands in), and matches weapons.
 // The format is in docs/RULES.md.
 //
-//   { "rules": [ { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x02ACD2"], "mode": "exempt" } ] }
+//   { "rules": [ { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x04E4EE"], "mode": "exempt" } ] }
 
 #pragma once
 

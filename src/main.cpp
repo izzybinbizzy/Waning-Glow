@@ -15,6 +15,7 @@
 //   Glow.h         the light's behaviour as plain numbers (curves, sputter, pulse, flare, cooling) - tests/test_glow.cpp
 //   Charge.cpp     what a hand holds and how full it is
 //   Lights.cpp     the lights on a weapon, found and scaled every frame
+//   OwnLight.cpp   our own light, on a weapon no other mod lights (off unless the menu turns it on)
 //   Rules.cpp      rule files: Data\SKSE\Plugins\WaningGlow\*.json (docs/RULES.md)
 //   SettingsText.h the settings and their file's lines, as plain text - tests/test_glow.cpp
 //   Settings.cpp   the settings file, Data\SKSE\Plugins\WaningGlow.ini, and the one shared copy

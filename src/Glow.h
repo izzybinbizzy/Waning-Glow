@@ -318,6 +318,37 @@ namespace Glow
 		float r{ 1.0f }, g{ 1.0f }, b{ 1.0f };
 	};
 
+	// Waning Glow's own light, for a weapon no other mod lights (Settings::ownLight): only on a tracked hand that follows
+	// its charge (not a bound weapon's clock, not one left alone), with a weapon model to hang it on, and nothing else lit
+	[[nodiscard]] inline bool WantsOwnLight(bool a_on, bool a_active, bool a_bound, std::size_t a_otherLights, bool a_hasModel) noexcept
+	{
+		return a_on && a_active && !a_bound && a_otherLights == 0 && a_hasModel;
+	}
+
+	// its color: the enchantment's element (1 fire, 2 frost, 3 shock), else its glow shader's color (0-255, when it has
+	// one that is not black), else a soft white
+	[[nodiscard]] inline Rgb OwnLightColor(int a_element, const Rgb* a_shader) noexcept
+	{
+		switch (a_element) {
+		case 1:
+			return { 1.0f, 0.45f, 0.15f };
+		case 2:
+			return { 0.45f, 0.7f, 1.0f };
+		case 3:
+			return { 0.65f, 0.55f, 1.0f };
+		default:
+			break;
+		}
+		if (a_shader && std::isfinite(a_shader->r + a_shader->g + a_shader->b)) {
+			const float top = (std::max)({ a_shader->r, a_shader->g, a_shader->b });
+			if (top > 8.0f) {
+				// its hue at full brightness: a dim shader color still makes a light that shows
+				return { Clamp01(a_shader->r / top), Clamp01(a_shader->g / top), Clamp01(a_shader->b / top) };
+			}
+		}
+		return { 0.9f, 0.9f, 1.0f };
+	}
+
 	// the colour a light cools toward: its own brightness in grey, or that brightness in a dull ember
 	[[nodiscard]] inline Rgb CoolTarget(const Rgb& a_c, CoolTint a_tint) noexcept
 	{

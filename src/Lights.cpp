@@ -101,6 +101,7 @@ namespace Plugin
 			float                    fraction{ 1.0f };
 			std::vector<Root>        effectRoots;  // enchantment effects' attach roots, from the reference-effect hooks
 			std::size_t              lights{ 0 }, roots{ 0 };
+			std::size_t              others{ 0 };  // of `lights`, the ones another mod hung (not our own light)
 			std::string              actorName;
 			std::string              weaponLabel, enchLabel;  // made on the main thread, for the Debug page and DevBench
 			float                    chargeAV{ -1.0f };       // the game's own item-charge value, read on the main thread
@@ -200,8 +201,9 @@ namespace Plugin
 			}
 		}
 
-		// every NiPointLight under a root takes this hand's numbers; returns how many
-		std::size_t ApplyUnder(RE::NiAVObject* a_root, const HandTrack& a_hand)
+		// every NiPointLight under a root takes this hand's numbers; returns how many (and adds to a_others the ones that are
+		// not our own light)
+		std::size_t ApplyUnder(RE::NiAVObject* a_root, const HandTrack& a_hand, std::size_t* a_others = nullptr)
 		{
 			std::size_t n = 0;
 			if (!a_root) {
@@ -211,15 +213,18 @@ namespace Plugin
 				if (a_light) {
 					ApplyLight(a_light, a_hand);
 					++n;
+					if (a_others && a_light->name != kOwnLightName) {
+						++*a_others;
+					}
 				}
 				return RE::BSVisit::BSVisitControl::kContinue;
 			});
 			return n;
 		}
 
-		void ApplyHand(RE::Actor* a_actor, HandTrack& a_hand)
+		void ApplyHand(RE::Actor* a_actor, HandTrack& a_hand, const Settings& a_settings)
 		{
-			a_hand.lights = a_hand.roots = 0;
+			a_hand.lights = a_hand.roots = a_hand.others = 0;
 			const auto* weapon = a_hand.reading.weapon;
 			std::array<RE::NiAVObject*, 2> parts{ WeaponPart(a_actor, false, a_hand.left, weapon), nullptr };
 			if (a_actor->IsPlayerRef()) {
@@ -228,14 +233,21 @@ namespace Plugin
 			for (auto* part : parts) {
 				if (part) {
 					++a_hand.roots;
-					a_hand.lights += ApplyUnder(part, a_hand);
+					a_hand.lights += ApplyUnder(part, a_hand, &a_hand.others);
 				}
 			}
 			std::erase_if(a_hand.effectRoots, [](const Root& r) { return !r.node || gFrame - r.frame > kKeepFrames; });
 			for (auto& root : a_hand.effectRoots) {
 				// an effect root under the weapon part was covered above; searching it again changes nothing
 				++a_hand.roots;
-				a_hand.lights += ApplyUnder(root.node.get(), a_hand);
+				a_hand.lights += ApplyUnder(root.node.get(), a_hand, &a_hand.others);
+			}
+			// our own light, on the third-person model (it lights the first-person view too), when nothing else lights it
+			const bool want = Glow::WantsOwnLight(a_settings.ownLight, true, a_hand.reading.bound, a_hand.others, parts[0] != nullptr);
+			if (auto* made = KeepOwnLight(Key(a_hand.actor, a_hand.left), want ? parts[0] : nullptr, a_hand.reading.ench,
+					static_cast<float>(a_settings.ownLightReach))) {
+				ApplyLight(made, a_hand);
+				++a_hand.lights;
 			}
 		}
 
@@ -361,6 +373,7 @@ namespace Plugin
 		gEnabled = s.enabled;
 		gDimShader = s.dimShader;
 		if (!s.enabled) {
+			DropOwnLights();
 			for (auto& [light, seen] : gLights) {
 				RestoreLight(seen);
 			}
@@ -453,7 +466,7 @@ namespace Plugin
 				if ((h.out.pulsed || h.out.flared) && s.debugLog) {
 					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
-				ApplyHand(actor.get(), h);
+				ApplyHand(actor.get(), h, s);
 			}
 		}
 		// a hand not read this frame (a follower dismissed, an actor unloaded) is no longer active: the effect hooks must not
@@ -464,6 +477,7 @@ namespace Plugin
 				hand.effectRoots.clear();  // its effects' 3D is not ours to keep
 			}
 		}
+		SweepOwnLights();  // a hand that did not ask for its light this frame (put away, exempt, gone) lets it go
 		Sweep();
 		gActiveHands = static_cast<std::size_t>(std::ranges::count_if(gHands, [](const auto& kv) { return kv.second.active; }));
 	}
@@ -555,6 +569,7 @@ namespace Plugin
 	void ReleaseAll()
 	{
 		std::lock_guard lock(gLock);
+		DropOwnLights();
 		for (auto& [light, seen] : gLights) {
 			RestoreLight(seen);
 		}

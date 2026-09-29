@@ -6,7 +6,7 @@
 // Every rule that matches a weapon applies, and a later rule's setting replaces an earlier one's - so a mod author's
 // file can be overridden by a player's "zz_mine.json". The format is in docs/RULES.md.
 //
-//   { "rules": [ { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x02ACD2"], "mode": "exempt" } ] }
+//   { "rules": [ { "name": "Dawnbreaker always glows", "weapons": ["Skyrim.esm|0x04E4EE"], "mode": "exempt" } ] }
 //
 // Match fields (a rule with none matches everything):
 //   weapons, enchantments   "Plugin.esp|0x123" (or SPID's "0x123~Plugin.esp") or an editor ID

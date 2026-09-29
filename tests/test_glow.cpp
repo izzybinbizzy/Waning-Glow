@@ -621,7 +621,7 @@ namespace
 		{
 			Loaded l;
 			CHECK(ReadFile(R"({ "rules": [
-				{ "name": "a", "weapons": ["Skyrim.esm|0x0102ACD2", "DA01Dawnbreaker"], "mode": "exempt" },
+				{ "name": "a", "weapons": ["Skyrim.esm|0x0104E4EE", "DA01Dawnbreaker"], "mode": "exempt" },
 				{ "name": "b", "effectKeywords": "MagicDamageFire", "curve": "Steep", "sputterBelow": 90, "emptyBrightness": -5,
 				  "colorCoolingTint": "gray", "boundFadeSeconds": 0 },
 				// a comment
@@ -631,7 +631,7 @@ namespace
 			CHECK(l.rules.size() == 2);  // "c" names only a form that is not installed: it matches nothing, so it is skipped
 			CHECK(l.notes.size() == 2);  // ...and the log says why (the entry, then the rule)
 			const auto& a = l.rules[0];
-			CHECK(a.name == "mod.json #1: a" && a.weapons.size() == 2 && a.weapons[0].id == 0x02ACD2 && a.weapons[1].editorID == "da01dawnbreaker");
+			CHECK(a.name == "mod.json #1: a" && a.weapons.size() == 2 && a.weapons[0].id == 0x04E4EE && a.weapons[1].editorID == "da01dawnbreaker");
 			CHECK(a.mode == Plugin::Mode::kExempt);
 			const auto& b = l.rules[1];
 			CHECK(b.effectKeywords == std::vector<std::string>{ "magicdamagefire" });  // one string on its own is a list of one
@@ -835,9 +835,42 @@ namespace
 
 }
 
+	// our own light: only for a tracked, charge-following hand with a model and no other light; its color by element,
+	// else the glow shader's hue at full brightness, else a soft white
+	void TestOwnLight()
+	{
+		CHECK(Glow::WantsOwnLight(true, true, false, 0, true));
+		CHECK(!Glow::WantsOwnLight(false, true, false, 0, true));  // off by default: the setting
+		CHECK(!Glow::WantsOwnLight(true, false, false, 0, true));  // not tracked
+		CHECK(!Glow::WantsOwnLight(true, true, true, 0, true));    // a bound weapon
+		CHECK(!Glow::WantsOwnLight(true, true, false, 1, true));   // another mod lights it
+		CHECK(!Glow::WantsOwnLight(true, true, false, 0, false));  // no model to hang it on
+		CHECK(!Plugin::Settings{}.ownLight && Plugin::Settings{}.ownLightReach == 160);
+		const auto fire = Glow::OwnLightColor(1, nullptr);
+		CHECK(fire.r > fire.b);
+		const auto frost = Glow::OwnLightColor(2, nullptr);
+		CHECK(frost.b > frost.r);
+		const Glow::Rgb dimGreen{ 10.0f, 60.0f, 20.0f };
+		const auto      g = Glow::OwnLightColor(0, &dimGreen);
+		CHECK(Near(g.g, 1.0f) && Near(g.r, 10.0f / 60.0f) && Near(g.b, 20.0f / 60.0f));
+		const Glow::Rgb black{ 0.0f, 0.0f, 0.0f };
+		const auto      w = Glow::OwnLightColor(0, &black);
+		CHECK(w.r > 0.8f && w.g > 0.8f && w.b > 0.8f);
+		const Glow::Rgb nan{ std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f };
+		const auto      n = Glow::OwnLightColor(0, &nan);
+		CHECK(std::isfinite(n.r) && std::isfinite(n.g) && std::isfinite(n.b));
+		CHECK(Glow::OwnLightColor(1, &dimGreen).r == fire.r);  // the element comes first
+		// the settings: clamped, saved and read back
+		Plugin::Settings s;
+		CHECK(Plugin::SettingsText::Apply(s, "OwnLight", 1) && s.ownLight);
+		CHECK(Plugin::SettingsText::Apply(s, "ownlightreach", 9999) && s.ownLightReach == 600);
+		CHECK(Plugin::SettingsText::Apply(s, "OwnLightReach", 0) && s.ownLightReach == 50);
+	}
+
 int main()
 {
 	Curves();
+	TestOwnLight();
 	Levels();
 	FullChargeIsUntouched();
 	EmptyHoldsTheFloorSteadily();

@@ -125,11 +125,11 @@ namespace Plugin
 			Percent("Sputter below", t.sputterBelow, 1, 50, "The charge level where the sputter starts.", save);
 			Percent("Sputter strength", t.sputterStrength, 0, 100, "How deep the deepest dip goes, at empty.", save);
 			Toggle("Hold still when empty", t.emptySteady, "At exactly 0% charge the light stops sputtering and holds at its empty brightness.", save);
-			Toggle("Colour cooling", t.cool, "Below the sputter level the light's colour drains toward grey or a dull ember.", save);
-			Percent("Cooling amount", t.coolAmount, 0, 100, "How far the colour moves at empty.", save);
+			Toggle("Color cooling", t.cool, "Below the sputter level the light's color drains toward grey or a dull ember.", save);
+			Percent("Cooling amount", t.coolAmount, 0, 100, "How far the color moves at empty.", save);
 			{
 				static const char* const kTints[] = { "Grey", "Ember" };
-				Choice("Cools toward", t.coolTint, kTints, 2, "Grey: the colour drains out. Ember: it turns a dull orange, like a dying fire.", save);
+				Choice("Cools toward", t.coolTint, kTints, 2, "Grey: the color drains out. Ember: it turns a dull orange, like a dying fire.", save);
 			}
 
 			GlowHeading("Moments");
@@ -156,6 +156,20 @@ namespace Plugin
 					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
 					"makes them spend it.",
 					save);
+			}
+
+			GlowHeading("Weapons nothing else lights");
+			Toggle("Give them a light of their own", s.ownLight,
+				"An enchanted weapon no other mod lights (a fire, frost or shock enchantment with only a glow and no art) gets a small "
+				"light in its enchantment's color, which fades with the charge like any other. Off: only lights other mods hang are dimmed.",
+				save);
+			{
+				int reach = s.ownLightReach;
+				if (ImGuiMCP::SliderInt("Its reach", &reach, 50, 600, "%d")) {
+					s.ownLightReach = std::clamp(reach, 50, 600);
+				}
+				save |= ImGuiMCP::IsItemDeactivatedAfterEdit();
+				Tip("How far that light reaches, in game units (a person is about 128 tall).");
 			}
 
 			GlowHeading("Experimental");
@@ -240,7 +254,7 @@ namespace Plugin
 			}
 
 			GlowHeading("Lights");
-			ImGuiMCP::Text("%zu light(s) being scaled", ScaledLightCount());
+			ImGuiMCP::Text("%zu light(s) being scaled, %zu of them Waning Glow's own", ScaledLightCount(), OwnLightCount());
 			if (const auto frozen = FrozenLightCount()) {
 				ImGuiMCP::TextColored(kGold, "%zu light(s) held steady: another plugin scales them the same way", frozen);
 				Tip("Two plugins each scaling the other's output would drive the light to black or white. Waning Glow noticed "
