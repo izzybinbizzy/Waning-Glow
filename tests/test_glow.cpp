@@ -621,7 +621,7 @@ namespace
 		{
 			Loaded l;
 			CHECK(ReadFile(R"({ "rules": [
-				{ "name": "a", "weapons": ["Skyrim.esm|0x0104E4EE", "DA01Dawnbreaker"], "mode": "exempt" },
+				{ "name": "a", "weapons": ["Skyrim.esm|0x0104E4EE", "DA09Dawnbreaker"], "mode": "exempt" },
 				{ "name": "b", "effectKeywords": "MagicDamageFire", "curve": "Steep", "sputterBelow": 90, "emptyBrightness": -5,
 				  "colorCoolingTint": "gray", "boundFadeSeconds": 0 },
 				// a comment
@@ -631,7 +631,7 @@ namespace
 			CHECK(l.rules.size() == 2);  // "c" names only a form that is not installed: it matches nothing, so it is skipped
 			CHECK(l.notes.size() == 2);  // ...and the log says why (the entry, then the rule)
 			const auto& a = l.rules[0];
-			CHECK(a.name == "mod.json #1: a" && a.weapons.size() == 2 && a.weapons[0].id == 0x04E4EE && a.weapons[1].editorID == "da01dawnbreaker");
+			CHECK(a.name == "mod.json #1: a" && a.weapons.size() == 2 && a.weapons[0].id == 0x04E4EE && a.weapons[1].editorID == "da09dawnbreaker");
 			CHECK(a.mode == Plugin::Mode::kExempt);
 			const auto& b = l.rules[1];
 			CHECK(b.effectKeywords == std::vector<std::string>{ "magicdamagefire" });  // one string on its own is a list of one
@@ -715,8 +715,8 @@ namespace
 		CHECK(b.kind == K::kPluginAndID && b.plugin == "Skyrim.esm" && b.id == 0x04E4EE);
 		auto c = FormText::Parse("  Dawnguard.esm | 4E4EE ");  // spaces, no 0x
 		CHECK(c.kind == K::kPluginAndID && c.plugin == "Dawnguard.esm" && c.id == 0x4E4EE);
-		auto d = FormText::Parse("DA01Dawnbreaker");
-		CHECK(d.kind == K::kEditorID && d.editorID == "DA01Dawnbreaker");
+		auto d = FormText::Parse("DA09Dawnbreaker");
+		CHECK(d.kind == K::kEditorID && d.editorID == "DA09Dawnbreaker");
 		CHECK(FormText::Parse("Skyrim.esm|0xZZ").kind == K::kBad);
 		CHECK(FormText::Parse("|0x123").kind == K::kBad);
 		CHECK(FormText::Parse("Skyrim.esm|").kind == K::kBad);

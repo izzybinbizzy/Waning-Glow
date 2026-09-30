@@ -5,7 +5,7 @@
 // How a rule file names a form, as plain text (no game types, so tests/test_glow.cpp checks it):
 //   "Skyrim.esm|0x04E4EE"   plugin, bar, hexadecimal form ID (0x optional) - Light Placer's and Base Object Swapper's way
 //   "0x04E4EE~Skyrim.esm"   the same, SPID's and KID's way
-//   "DA01Dawnbreaker"       an editor ID
+//   "DA09Dawnbreaker"       an editor ID
 
 #pragma once
 
