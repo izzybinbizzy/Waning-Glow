@@ -297,7 +297,10 @@ namespace Plugin
 				a_hand.lights += ApplyUnder(root.node.get(), a_hand, &a_hand.others);
 			}
 			// our own light, on the third-person model (it lights the first-person view too), when nothing else lights it
-			a_hand.unlitFor = a_hand.others ? 0.0f : a_hand.unlitFor + (std::max)(a_delta, 0.0f);
+			// only while the weapon is drawn: sheathed, its enchantment's own light is gone and the weapon must stay dark
+			const auto* state = a_actor->AsActorState();
+			const bool  drawn = state && state->IsWeaponDrawn();
+			a_hand.unlitFor = (a_hand.others || !drawn) ? 0.0f : a_hand.unlitFor + (std::max)(a_delta, 0.0f);
 			const bool want = Glow::WantsOwnLight(a_settings.ownLight, a_hand.reading.bound, a_hand.unlitFor, parts[0] != nullptr);
 			if (auto* made = KeepOwnLight(Key(a_hand.actor, a_hand.left), want ? parts[0] : nullptr, a_hand.reading.ench)) {
 				ApplyLight(made, a_hand);

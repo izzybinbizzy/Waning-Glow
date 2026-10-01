@@ -233,7 +233,7 @@ namespace Plugin::RulesText
 			r.mode = rd.Choice<Mode>(a_rule, "mode", { { "charge", Mode::kCharge }, { "exempt", Mode::kExempt }, { "bound", Mode::kBound } },
 				"charge, exempt or bound");
 			r.curve = rd.Choice<Glow::Curve>(a_rule, "curve",
-				// "steep" was a third curve before 1.1: an old rule file reads it as gentle
+				// "steep" was a third curve in early builds: an old rule file reads it as gentle
 				{ { "linear", Glow::Curve::kLinear }, { "gentle", Glow::Curve::kGentle }, { "steep", Glow::Curve::kGentle } },
 				"linear or gentle");
 			r.coolTint = rd.Choice<Glow::CoolTint>(a_rule, "colorCoolingTint",
