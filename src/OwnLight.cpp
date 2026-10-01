@@ -3,9 +3,9 @@
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
 // Waning Glow's own light, for an enchanted weapon no other mod lights (a fire, frost or shock enchantment with only a
-// glow shader and no art has nothing for a lighting mod to hang a light on). Off unless the Settings page's "Light
-// weapons nothing else lights" is on. The light hangs on the weapon's model, so Lights.cpp finds and dims it like any
-// other: it follows the charge, sputters, pulses and flares.
+// glow shader and no art has nothing for a lighting mod to hang a light on). On by default (OwnLight in the settings
+// file); it stands down on any weapon another mod lights (Glow::WantsOwnLight). The light hangs on the weapon's model,
+// so Lights.cpp finds and dims it like any other: it follows the charge, sputters, pulses and flares.
 //
 // How a light is made and registered follows ReLight by Truman (github.com/TrumanGIT/ReLight, GPL-3.0-or-later): one
 // master NiPointLight made once and cloned for every use (a freshly made light attached straight away crashes), the
@@ -149,7 +149,7 @@ namespace Plugin
 		}
 	}
 
-	RE::NiPointLight* KeepOwnLight(std::uint64_t a_key, RE::NiAVObject* a_model, const RE::EnchantmentItem* a_ench, float a_reach)
+	RE::NiPointLight* KeepOwnLight(std::uint64_t a_key, RE::NiAVObject* a_model, const RE::EnchantmentItem* a_ench)
 	{
 		if (!a_model) {
 			if (const auto it = gOwn.find(a_key); it != gOwn.end()) {
@@ -166,7 +166,7 @@ namespace Plugin
 		}
 		Drop(own);
 		own.asked = true;
-		return Hang(own, a_model, ColorOf(a_ench), std::clamp(a_reach, 50.0f, 600.0f)) ? own.light.get() : nullptr;
+		return Hang(own, a_model, ColorOf(a_ench), Glow::kOwnLightReach) ? own.light.get() : nullptr;
 	}
 
 	void SweepOwnLights()

@@ -7,15 +7,16 @@
 //
 // An enchanted weapon's light follows its charge: full when charged, dimmer as it is used, a sputter when nearly empty,
 // a pulse when a hit spends charge, a flare when a soul gem refills it, and a cooler colour near empty. A bound weapon's
-// light follows the time its spell has left. It makes no light of its own and needs no plugin (.esp) and no script.
+// light follows the time its spell has left. A weapon no lighting mod lights gets a simple light of its own, and the
+// enchantment's glow can dim with the charge too. It needs no plugin (.esp) and no script.
 //
 // THE FILES, AND WHAT EACH ONE IS FOR
-//   main.cpp       this file - the hooks, and the order things start in
+//   main.cpp       this file - the hooks (the HUD's charge bar among them), and the order things start in
 //   FormText.h     how a rule file names a form, as plain text - tests/test_glow.cpp
 //   Glow.h         the light's behaviour as plain numbers (curves, sputter, pulse, flare, cooling) - tests/test_glow.cpp
 //   Charge.cpp     what a hand holds and how full it is
 //   Lights.cpp     the lights on a weapon, found and scaled every frame
-//   OwnLight.cpp   our own light, on a weapon no other mod lights (off unless the menu turns it on)
+//   OwnLight.cpp   our own light, on a weapon no other mod lights (stands down when one does)
 //   Rules.cpp      rule files: Data\SKSE\Plugins\WaningGlow\*.json (docs/RULES.md)
 //   SettingsText.h the settings and their file's lines, as plain text - tests/test_glow.cpp
 //   Settings.cpp   the settings file, Data\SKSE\Plugins\WaningGlow.ini, and the one shared copy
@@ -115,6 +116,58 @@ namespace
 		}
 	};
 
+	// ------------------------------------------------------------------ the HUD's enchantment charge bar
+	// HUDChargeMeter::Update hands the HUD movie its numbers in two calls to SetChargeMeterPercent(percent, force,
+	// leftHand, show) - the two calls TrueHUD also reads for its own bar (ersh1/TrueHUD, Hooks.h). With HideChargeBar on,
+	// both go out with show = false, which the vanilla HUD, SkyHUD and TrueHUD all take as "hide the bar". Installed at
+	// data load, after TrueHUD hooked the same calls at plugin load, so TrueHUD is handed what we pass on.
+	// SE/AE only: the call sites are known for those two.
+	template <int N>
+	struct ChargeBar
+	{
+		static bool thunk(RE::GFxValue::ObjectInterface* a_this, void* a_data, RE::GFxValue* a_result, const char* a_name,
+			const RE::GFxValue* a_args, RE::UPInt a_count, bool a_isDisplayObject)
+		{
+			const auto settings = Plugin::Config();
+			if (settings.debugLog && a_args && a_count == 4 && a_args[0].IsNumber() && a_args[2].IsBool() && a_args[3].IsBool()) {
+				// the debug log: each change of what the game hands the HUD (it calls this every frame)
+				static std::tuple<int, bool, bool> last[2]{ { -1, false, false }, { -1, false, false } };
+				const std::tuple<int, bool, bool> now{ static_cast<int>(a_args[0].GetNumber()), a_args[2].GetBool(), a_args[3].GetBool() };
+				if (std::exchange(last[N], now) != now) {
+					SKSE::log::info("charge bar ({}): {}% {} hand, show {}{}", N, std::get<0>(now), std::get<1>(now) ? "left" : "right",
+						std::get<2>(now), settings.hideChargeBar ? " - hidden by Waning Glow" : "");
+				}
+			}
+			if (a_args && a_count == 4 && settings.hideChargeBar) {
+				RE::GFxValue args[4]{ a_args[0], a_args[1], a_args[2], a_args[3] };
+				args[3].SetBoolean(false);
+				return func(a_this, a_data, a_result, a_name, args, a_count, a_isDisplayObject);
+			}
+			return func(a_this, a_data, a_result, a_name, a_args, a_count, a_isDisplayObject);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+		static bool                                    Install(std::ptrdiff_t a_offset)
+		{
+			REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(50771, 51666), a_offset };  // HUDChargeMeter::Update
+			if (*reinterpret_cast<const std::uint8_t*>(target.address()) != 0xE8) {
+				return false;
+			}
+			func = SKSE::GetTrampoline().write_call<5>(target.address(), thunk);
+			return true;
+		}
+	};
+
+	void InstallChargeBar()
+	{
+		if (REL::Module::IsVR()) {
+			SKSE::log::info("VR: the charge bar cannot be hidden");
+			return;
+		}
+		const bool ok = ChargeBar<0>::Install(0x168) && ChargeBar<1>::Install(0x2B3);
+		SKSE::log::info("{}", ok ? "the charge bar's two updates hooked" :
+		                           "the charge bar's updates are not where expected (another plugin rewrote them?); it cannot be hidden");
+	}
+
 	void OnDataLoaded()
 	{
 		Plugin::LoadSettings();
@@ -124,6 +177,7 @@ namespace
 		UpdatePosition<RE::ShaderReferenceEffect>::Install();
 		ShaderUpdate::Install();
 		CellAnimations::Install();
+		InstallChargeBar();
 		SKSE::log::info("hooked the player update, enchantment effects' updates (after Light Placer's) and effect shaders");
 		// Light Placer ships as po3_LightPlacer.dll (read off his install 2026-09-24); the plain name is kept for any other build
 		const bool lightPlacer = REX::W32::GetModuleHandleA("po3_LightPlacer.dll") != nullptr ||

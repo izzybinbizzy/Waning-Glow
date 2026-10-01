@@ -68,10 +68,10 @@ namespace Plugin
 		SetConfig(s);
 		const auto& t = s.tuning;
 		SKSE::log::info("settings: {} line(s) read from {}; enabled {}, empty brightness {}%, curve {}, reach follows {}%, "
-						"sputter {} below {}%, pulse {}, flare {}, cooling {}, staves {}, bound {} ({} s), who {}, shader {}",
+						"sputter {} below {}%, pulse {}, flare {}, cooling {}, staves {}, bound {} ({} s), who {}, dim glow {}, hide charge bar {}, own light {}",
 			read.taken, kPath, s.enabled, SettingsText::ToPct(t.floor), static_cast<int>(t.curve), SettingsText::ToPct(t.reachFollows),
 			t.sputter, SettingsText::ToPct(t.sputterBelow), t.pulse, t.flare, t.cool, s.staves, s.bound, s.boundFadeSeconds,
-			static_cast<int>(s.who), s.dimShader);
+			static_cast<int>(s.who), s.dimShader, s.hideChargeBar, s.ownLight);
 	}
 
 	void SaveSettings()

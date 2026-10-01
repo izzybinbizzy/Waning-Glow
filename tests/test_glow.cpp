@@ -48,8 +48,7 @@ namespace
 		using Glow::Curve;
 		CHECK(Near(Glow::ApplyCurve(Curve::kLinear, 0.5f), 0.5f));
 		CHECK(Near(Glow::ApplyCurve(Curve::kGentle, 0.5f), 0.75f));
-		CHECK(Near(Glow::ApplyCurve(Curve::kSteep, 0.5f), 0.25f));
-		for (auto c : { Curve::kLinear, Curve::kGentle, Curve::kSteep }) {
+		for (auto c : { Curve::kLinear, Curve::kGentle }) {
 			CHECK(Near(Glow::ApplyCurve(c, 0.0f), 0.0f));
 			CHECK(Near(Glow::ApplyCurve(c, 1.0f), 1.0f));
 			CHECK(Near(Glow::ApplyCurve(c, -3.0f), 0.0f));  // clamped
@@ -635,7 +634,7 @@ namespace
 			CHECK(a.mode == Plugin::Mode::kExempt);
 			const auto& b = l.rules[1];
 			CHECK(b.effectKeywords == std::vector<std::string>{ "magicdamagefire" });  // one string on its own is a list of one
-			CHECK(b.curve == Glow::Curve::kSteep && b.coolTint == Glow::CoolTint::kGrey);
+			CHECK(b.curve == Glow::Curve::kGentle && b.coolTint == Glow::CoolTint::kGrey);
 			CHECK(Near(*b.sputterBelow, 0.5f) && Near(*b.floor, 0.0f) && Near(*b.boundFadeSeconds, 1.0f));  // clamped
 		}
 		{
@@ -671,7 +670,7 @@ namespace
 			for (const auto& r : l.rules) {
 				Overlay(r, v);
 			}
-			CHECK(v.tuning.curve == Glow::Curve::kSteep && !v.tuning.pulse && v.mode == Plugin::Mode::kCharge);
+			CHECK(v.tuning.curve == Glow::Curve::kGentle && !v.tuning.pulse && v.mode == Plugin::Mode::kCharge);
 			CHECK(v.why == "o.json #2: second");
 		}
 	}
@@ -782,12 +781,14 @@ namespace
 			Settings c;
 			c.enabled = false;
 			c.tuning.floor = 0.25f;
-			c.tuning.curve = Glow::Curve::kSteep;
+			c.tuning.curve = Glow::Curve::kLinear;
 			c.tuning.sputterBelow = 0.3f;
 			c.tuning.coolTint = Glow::CoolTint::kGrey;
 			c.who = Plugin::Who::kPlayerAndFollowers;
 			c.boundFadeSeconds = 42.0f;
-			c.dimShader = true;
+			c.dimShader = false;
+			c.hideChargeBar = true;
+			c.ownLight = false;
 			std::ostringstream out2;
 			Plugin::SettingsText::Write(out2, c);
 			Settings back2;
@@ -800,7 +801,7 @@ namespace
 			std::size_t problems = 0;
 			const int   n = Taken("\xEF\xBB\xBF[settings]\r\n  enabled = 0 ; off for now\r\nEMPTYBRIGHTNESS=20\r\nCurve=2 # steep\r\n", s, &problems);
 			CHECK(n == 3 && problems == 0);
-			CHECK(!s.enabled && Near(s.tuning.floor, 0.2f) && s.tuning.curve == Glow::Curve::kSteep);
+			CHECK(!s.enabled && Near(s.tuning.floor, 0.2f) && s.tuning.curve == Glow::Curve::kGentle);  // the old steep reads as gentle
 		}
 		{
 			// what cannot be used keeps the default and is reported: junk after a number, a fraction, an unknown key, another section
@@ -831,21 +832,31 @@ namespace
 			CHECK(Plugin::SettingsText::Apply(s, "debuglog", 1) && s.debugLog);
 			CHECK(!Plugin::SettingsText::Apply(s, "Debug_Log", 1));
 		}
+		{
+			// a key an older version wrote is read past quietly, and never written again
+			Settings    s;
+			std::size_t problems = 0;
+			CHECK(Taken("[Settings]\nOwnLightReach=300\nownlight=0\n", s, &problems) == 1 && problems == 0 && !s.ownLight);
+			std::ostringstream out;
+			Plugin::SettingsText::Write(out, s);
+			CHECK(out.str().find("OwnLightReach") == std::string::npos && out.str().find("HideChargeBar=0") != std::string::npos);
+		}
 	}
 
 }
 
-	// our own light: only for a tracked, charge-following hand with a model and no other light; its color by element,
-	// else the glow shader's hue at full brightness, else a soft white
+	// our own light: on by default; only for a charge-following hand with a model, once it has gone kOwnLightDelay with no
+	// other mod's light; its color by element, else the glow shader's hue at full brightness, else a soft white
 	void TestOwnLight()
 	{
-		CHECK(Glow::WantsOwnLight(true, true, false, 0, true));
-		CHECK(!Glow::WantsOwnLight(false, true, false, 0, true));  // off by default: the setting
-		CHECK(!Glow::WantsOwnLight(true, false, false, 0, true));  // not tracked
-		CHECK(!Glow::WantsOwnLight(true, true, true, 0, true));    // a bound weapon
-		CHECK(!Glow::WantsOwnLight(true, true, false, 1, true));   // another mod lights it
-		CHECK(!Glow::WantsOwnLight(true, true, false, 0, false));  // no model to hang it on
-		CHECK(!Plugin::Settings{}.ownLight && Plugin::Settings{}.ownLightReach == 160);
+		const float later = Glow::kOwnLightDelay;
+		CHECK(Glow::WantsOwnLight(true, false, later, true));
+		CHECK(!Glow::WantsOwnLight(false, false, later, true));        // switched off
+		CHECK(!Glow::WantsOwnLight(true, true, later, true));          // a bound weapon
+		CHECK(!Glow::WantsOwnLight(true, false, 0.0f, true));          // another mod lights it (its unlit time is 0)
+		CHECK(!Glow::WantsOwnLight(true, false, later * 0.5f, true));  // just drawn: a lighting mod may hang its light late
+		CHECK(!Glow::WantsOwnLight(true, false, later, false));        // no model to hang it on
+		CHECK(Plugin::Settings{}.ownLight && Plugin::Settings{}.dimShader && !Plugin::Settings{}.hideChargeBar);
 		const auto fire = Glow::OwnLightColor(1, nullptr);
 		CHECK(fire.r > fire.b);
 		const auto frost = Glow::OwnLightColor(2, nullptr);
@@ -860,11 +871,9 @@ namespace
 		const auto      n = Glow::OwnLightColor(0, &nan);
 		CHECK(std::isfinite(n.r) && std::isfinite(n.g) && std::isfinite(n.b));
 		CHECK(Glow::OwnLightColor(1, &dimGreen).r == fire.r);  // the element comes first
-		// the settings: clamped, saved and read back
 		Plugin::Settings s;
-		CHECK(Plugin::SettingsText::Apply(s, "OwnLight", 1) && s.ownLight);
-		CHECK(Plugin::SettingsText::Apply(s, "ownlightreach", 9999) && s.ownLightReach == 600);
-		CHECK(Plugin::SettingsText::Apply(s, "OwnLightReach", 0) && s.ownLightReach == 50);
+		CHECK(Plugin::SettingsText::Apply(s, "OwnLight", 0) && !s.ownLight);
+		CHECK(Plugin::SettingsText::Apply(s, "hidechargebar", 1) && s.hideChargeBar);
 	}
 
 int main()

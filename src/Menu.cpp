@@ -2,9 +2,10 @@
 // Copyright (C) 2026 izzydoingit
 // GPL-3.0-or-later; see LICENSE.txt and the notice at the top of main.cpp.
 //
-// Two pages in SKSE Menu Framework's Mod Control Panel, under their own section. Settings: every setting, saved at once
-// and live on the next frame. Debug: each tracked hand's weapon, charge, the numbers on its lights and how many lights
-// were found, plus the rule files and their problems - what a bug report needs.
+// Two pages in SKSE Menu Framework's Mod Control Panel, under their own section. Settings: the everyday settings, saved
+// at once and live on the next frame (finer tuning stays in WaningGlow.ini and the rule files). Debug: the debug log,
+// each tracked hand's weapon, charge, the numbers on its lights and how many lights were found, plus the rule files and
+// their problems - what a bug report needs.
 // The look is RELight Spell Addon's: warm amber on the menu's dark, glowing headings, gold checks and grips.
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -104,8 +105,11 @@ namespace Plugin
 			Settings        s = before;
 			auto&           t = s.tuning;
 			bool            save = false;
+			const float     column = ImGuiMCP::GetContentRegionAvail().x * 0.5f;  // where a paired switch starts
+			ImGuiMCP::PushItemWidth(column * 0.9f);
 
-			Toggle("Enabled", s.enabled, "Off: every weapon light is put back exactly as the other mods set it.", save);
+			Toggle("Enabled", s.enabled, "Off: every weapon light and glow is put back exactly as the other mods set it.", save);
+			ImGuiMCP::BeginDisabled(!s.enabled);
 
 			GlowHeading("Fading");
 			Percent("Brightness when empty", t.floor, 0, 50,
@@ -113,35 +117,47 @@ namespace Plugin
 				"tell the weapon is enchanted but spent.",
 				save);
 			{
-				static const char* const kCurves[] = { "Linear", "Gentle - stays bright longer", "Steep - drops early" };
-				Choice("Curve", t.curve, kCurves, 3, "How the light falls as the charge falls. Gentle holds most of its brightness until the charge is low.",
+				static const char* const kCurves[] = { "Linear", "Gentle - stays bright longer" };
+				Choice("Curve", t.curve, kCurves, 2, "How the light falls as the charge falls. Gentle holds most of its brightness until the charge is low.",
 					save);
 			}
-			Percent("Reach follows", t.reachFollows, 0, 100,
-				"How much the light's reach shrinks along with its brightness. 0%: only the brightness changes.", save);
+			Toggle("Dim the enchantment glow too", s.dimShader,
+				"The glow on the blade (the enchantment's shader and its art, VAER's swirls among them) fades with the charge, "
+				"like the lights.",
+				save);
 
 			GlowHeading("Nearly empty");
 			Toggle("Sputter", t.sputter, "Below the level set here, the light sputters: short, irregular dips, deeper toward empty.", save);
+			ImGuiMCP::BeginDisabled(!t.sputter);
 			Percent("Sputter below", t.sputterBelow, 1, 50, "The charge level where the sputter starts.", save);
 			Percent("Sputter strength", t.sputterStrength, 0, 100, "How deep the deepest dip goes, at empty.", save);
-			Toggle("Hold still when empty", t.emptySteady, "At exactly 0% charge the light stops sputtering and holds at its empty brightness.", save);
+			ImGuiMCP::EndDisabled();
 			Toggle("Color cooling", t.cool, "Below the sputter level the light's color drains toward grey or a dull ember.", save);
-			Percent("Cooling amount", t.coolAmount, 0, 100, "How far the color moves at empty.", save);
+			ImGuiMCP::BeginDisabled(!t.cool);
 			{
 				static const char* const kTints[] = { "Grey", "Ember" };
 				Choice("Cools toward", t.coolTint, kTints, 2, "Grey: the color drains out. Ember: it turns a dull orange, like a dying fire.", save);
 			}
+			ImGuiMCP::EndDisabled();
 
 			GlowHeading("Moments");
 			Toggle("Hit pulse", t.pulse, "A quick flash when a hit spends charge.", save);
-			Percent("Pulse strength", t.pulseStrength, 0, 200, "How bright the flash is, over the light's level at the time.", save);
+			ImGuiMCP::SameLine(column);
 			Toggle("Recharge flare", t.flare, "When a soul gem refills the weapon, the light swells past full and settles.", save);
-			Percent("Flare strength", t.flareStrength, 0, 200, "How far past full the swell goes.", save);
 
 			GlowHeading("Which weapons");
+			{
+				static const char* const kWho[] = { "Player", "Player and followers" };
+				Choice("Whose weapons", s.who, kWho, 2,
+					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
+					"makes them spend it.",
+					save);
+			}
 			Toggle("Staves", s.staves, "Staves' lights follow their charge too.", save);
+			ImGuiMCP::SameLine(column);
 			Toggle("Bound weapons", s.bound,
 				"A bound weapon has no charge: its light stays full, then fades over the last seconds of its spell.", save);
+			ImGuiMCP::BeginDisabled(!s.bound);
 			{
 				int secs = static_cast<int>(s.boundFadeSeconds);
 				if (ImGuiMCP::SliderInt("Bound fade", &secs, 1, 60, "last %d s")) {
@@ -150,34 +166,18 @@ namespace Plugin
 				save |= ImGuiMCP::IsItemDeactivatedAfterEdit();
 				Tip("Over how many of the spell's last seconds a bound weapon's light fades.");
 			}
-			{
-				static const char* const kWho[] = { "Player", "Player and followers" };
-				Choice("Whose weapons", s.who, kWho, 2,
-					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
-					"makes them spend it.",
-					save);
-			}
+			ImGuiMCP::EndDisabled();
 
-			GlowHeading("Weapons nothing else lights");
-			Toggle("Give them a light of their own", s.ownLight,
-				"An enchanted weapon no other mod lights (a fire, frost or shock enchantment with only a glow and no art) gets a small "
-				"light in its enchantment's color, which fades with the charge like any other. Off: only lights other mods hang are dimmed.",
+			GlowHeading("HUD");
+			Toggle("Hide the charge bar", s.hideChargeBar,
+				"The HUD's enchantment charge bar is hidden: the weapon's light shows the charge instead. Works with the "
+				"vanilla HUD, SkyHUD and TrueHUD.",
 				save);
-			{
-				int reach = s.ownLightReach;
-				if (ImGuiMCP::SliderInt("Its reach", &reach, 50, 600, "%d")) {
-					s.ownLightReach = std::clamp(reach, 50, 600);
-				}
-				save |= ImGuiMCP::IsItemDeactivatedAfterEdit();
-				Tip("How far that light reaches, in game units (a person is about 128 tall).");
-			}
 
-			GlowHeading("Experimental");
-			Toggle("Dim the enchantment glow too", s.dimShader,
-				"The glowing shader on the blade follows the charge as well as the lights. Untested in game: turn it off "
-				"if an enchantment's glow looks wrong.",
-				save);
-			Toggle("Debug log", s.debugLog, "Writes each tracked weapon, rule match, pulse and flare to WaningGlow.log.", save);
+			ImGuiMCP::EndDisabled();
+			ImGuiMCP::PopItemWidth();
+			ImGuiMCP::Spacing();
+			ImGuiMCP::TextDisabled("%s", "Finer tuning (reach, pulse and flare strength, cooling amount) lives in WaningGlow.ini and the rule files.");
 
 			// only what changed on this page goes back, key by key: a change DevBench made meanwhile is kept
 			for (const auto& k : SettingsText::kKeys) {
@@ -194,6 +194,15 @@ namespace Plugin
 		{
 			const GlowStyle style;
 			const auto      hands = Snapshot();
+			{
+				Settings s = Config();
+				bool     save = false;
+				Toggle("Debug log", s.debugLog, "Writes each tracked weapon, rule match, pulse and flare to WaningGlow.log.", save);
+				if (save) {
+					ApplySetting("DebugLog", s.debugLog ? 1 : 0);
+					SaveSettings();
+				}
+			}
 
 			GlowHeading("Preview");
 			auto& preview = PreviewState();
@@ -254,7 +263,8 @@ namespace Plugin
 			}
 
 			GlowHeading("Lights");
-			ImGuiMCP::Text("%zu light(s) being scaled, %zu of them Waning Glow's own", ScaledLightCount(), OwnLightCount());
+			ImGuiMCP::Text("%zu light(s) being scaled, %zu of them Waning Glow's own; %zu glow(s) dimmed", ScaledLightCount(), OwnLightCount(),
+				DimmedGlowCount());
 			if (const auto frozen = FrozenLightCount()) {
 				ImGuiMCP::TextColored(kGold, "%zu light(s) held steady: another plugin scales them the same way", frozen);
 				Tip("Two plugins each scaling the other's output would drive the light to black or white. Waning Glow noticed "

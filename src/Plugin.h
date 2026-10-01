@@ -101,6 +101,8 @@ namespace Plugin
 	};
 	[[nodiscard]] std::vector<LightNow> LightsNow();  // every light being scaled: what it held after our last write, and its base
 	[[nodiscard]] std::size_t           ScaledLightCount();
+	[[nodiscard]] std::size_t           DimmedGlowCount();  // enchantment shaders and art swirls being dimmed
+	[[nodiscard]] std::vector<std::pair<float, float>> ArtNow();  // each art mesh's emissive scale: its base, and what we wrote
 	[[nodiscard]] std::size_t           FrozenLightCount();
 
 	// what the API hands other plugins: the charge fraction and the multiplier on this hand's lights; false if untracked
@@ -110,7 +112,7 @@ namespace Plugin
 	inline constexpr const char* kOwnLightName = "WaningGlowLight";
 	// this frame, the hand `a_key` wants its own light on `a_model` (nullptr: it wants none): hung (in `a_ench`'s color),
 	// moved or dropped. Returns the light when one was hung just now (so it can take this frame's numbers), else nullptr
-	RE::NiPointLight* KeepOwnLight(std::uint64_t a_key, RE::NiAVObject* a_model, const RE::EnchantmentItem* a_ench, float a_reach);
+	RE::NiPointLight* KeepOwnLight(std::uint64_t a_key, RE::NiAVObject* a_model, const RE::EnchantmentItem* a_ench);
 	void              SweepOwnLights();  // after every hand was seen this frame: the lights of hands that did not ask go
 	void              DropOwnLights();   // every one of them (switched off, a load)
 	[[nodiscard]] std::size_t OwnLightCount();

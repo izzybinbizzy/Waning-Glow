@@ -8,7 +8,7 @@
 //   [Settings]
 //   Enabled=1
 //   EmptyBrightness=10        percent, 0 to 50 - what is left of the light at 0% charge
-//   Curve=1                   0 linear, 1 gentle (stays bright longer), 2 steep (drops early)
+//   Curve=1                   0 linear, 1 gentle (stays bright longer); the old 2 (steep) reads as gentle
 //   ReachFollows=50           percent, 0 to 100 - how much of the fade the reach follows too
 //   Sputter=1
 //   SputterBelow=15           percent of charge, 1 to 50
@@ -25,14 +25,15 @@
 //   BoundWeapons=1
 //   BoundFadeSeconds=10       1 to 60: the last seconds of a bound weapon's spell, over which its light fades
 //   Who=0                     0 the player, 1 the player and followers
-//   DimShader=0               experimental: the enchantment's glow shader follows the charge too
+//   DimShader=1               the enchantment's glow (its shader and its art's swirls) follows the charge too
+//   HideChargeBar=0           the HUD's enchantment charge bar is hidden (vanilla HUD, SkyHUD, TrueHUD)
+//   OwnLight=1                a weapon no other mod lights gets a simple light in its enchantment's colour
 //   DebugLog=0
-//   OwnLight=0                a weapon no other mod lights gets a light of Waning Glow's own
-//   OwnLightReach=160         its reach, in game units, 50 to 600
 //
 // Every value is a whole number. The file is read the way people edit it: a byte order mark (Notepad's), any case in
 // section and key names, spaces, Windows line ends, and ; or # comments, on their own line or after a value. A line
-// that is not a whole number, or names no setting, keeps the default and is reported.
+// that is not a whole number, or names no setting, keeps the default and is reported; a retired key (kRetired) is
+// skipped quietly.
 
 #pragma once
 
@@ -64,10 +65,10 @@ namespace Plugin
 		bool         staves{ true };
 		bool         bound{ true };
 		float        boundFadeSeconds{ 10.0f };
-		bool         dimShader{ false };  // experimental: the enchantment's glow shader follows the charge too
+		bool         dimShader{ true };  // the enchantment's glow shader and its art's swirls follow the charge too
+		bool         hideChargeBar{ false };
+		bool         ownLight{ true };   // a weapon no other mod lights gets a light of our own (OwnLight.cpp)
 		bool         debugLog{ false };
-		bool         ownLight{ false };     // a weapon no other mod lights gets a light of our own (OwnLight.cpp)
-		int          ownLightReach{ 160 };  // its reach, game units
 
 		bool operator==(const Settings&) const = default;
 	};
@@ -106,7 +107,7 @@ namespace Plugin
 			{ "Enabled", [](const Settings& s) { return s.enabled ? 1 : 0; }, [](Settings& s, int v) { s.enabled = v != 0; } },
 			{ "EmptyBrightness", [](const Settings& s) { return ToPct(s.tuning.floor); }, [](Settings& s, int v) { s.tuning.floor = Pct(v, 0, 50); } },
 			{ "Curve", [](const Settings& s) { return static_cast<int>(s.tuning.curve); },
-				[](Settings& s, int v) { s.tuning.curve = static_cast<Glow::Curve>(std::clamp(v, 0, 2)); } },
+				[](Settings& s, int v) { s.tuning.curve = v <= 0 ? Glow::Curve::kLinear : Glow::Curve::kGentle; } },
 			{ "ReachFollows", [](const Settings& s) { return ToPct(s.tuning.reachFollows); },
 				[](Settings& s, int v) { s.tuning.reachFollows = Pct(v, 0, 100); } },
 			{ "Sputter", [](const Settings& s) { return s.tuning.sputter ? 1 : 0; }, [](Settings& s, int v) { s.tuning.sputter = v != 0; } },
@@ -132,10 +133,13 @@ namespace Plugin
 				[](Settings& s, int v) { s.boundFadeSeconds = static_cast<float>(std::clamp(v, 1, 60)); } },
 			{ "Who", [](const Settings& s) { return static_cast<int>(s.who); }, [](Settings& s, int v) { s.who = static_cast<Who>(std::clamp(v, 0, 1)); } },
 			{ "DimShader", [](const Settings& s) { return s.dimShader ? 1 : 0; }, [](Settings& s, int v) { s.dimShader = v != 0; } },
-			{ "DebugLog", [](const Settings& s) { return s.debugLog ? 1 : 0; }, [](Settings& s, int v) { s.debugLog = v != 0; } },
+			{ "HideChargeBar", [](const Settings& s) { return s.hideChargeBar ? 1 : 0; }, [](Settings& s, int v) { s.hideChargeBar = v != 0; } },
 			{ "OwnLight", [](const Settings& s) { return s.ownLight ? 1 : 0; }, [](Settings& s, int v) { s.ownLight = v != 0; } },
-			{ "OwnLightReach", [](const Settings& s) { return s.ownLightReach; }, [](Settings& s, int v) { s.ownLightReach = std::clamp(v, 50, 600); } },
+			{ "DebugLog", [](const Settings& s) { return s.debugLog ? 1 : 0; }, [](Settings& s, int v) { s.debugLog = v != 0; } },
 		};
+
+		// keys an older version wrote: read past without a warning, never written again
+		inline constexpr std::string_view kRetired[]{ "OwnLightReach" };
 
 		[[nodiscard]] inline bool SameText(std::string_view a, std::string_view b) noexcept
 		{
@@ -223,6 +227,9 @@ namespace Plugin
 				const auto key = Trim(l.substr(0, eq));
 				const auto val = Trim(l.substr(eq + 1));
 				int        v = 0;
+				if (std::ranges::any_of(kRetired, [key](std::string_view k) { return SameText(key, k); })) {
+					continue;
+				}
 				if (!Find(key)) {
 					r.problems.push_back(std::string(key) + ": not a setting");
 				} else if (!ReadInt(val, v)) {

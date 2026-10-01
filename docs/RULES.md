@@ -48,7 +48,7 @@ Anything a rule doesn't set keeps the value from the Settings page, or from an e
 |---|---|---|
 | `mode` | `"charge"`, `"exempt"`, `"bound"` | follow the charge; leave the light alone; follow a bound-weapon spell's time |
 | `emptyBrightness` | 0 to 50 (percent) | what is left of the light at 0% charge |
-| `curve` | `"linear"`, `"gentle"`, `"steep"` | how the light falls as the charge falls |
+| `curve` | `"linear"`, `"gentle"` | how the light falls as the charge falls (an old `"steep"` reads as gentle) |
 | `reachFollows` | 0 to 100 (percent) | how much the light's reach shrinks with its brightness |
 | `sputter` | true / false | the stepped dips near empty |
 | `sputterBelow` | 1 to 50 (percent) | the charge where the sputter starts |

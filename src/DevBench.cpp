@@ -70,6 +70,14 @@ namespace Plugin
 			out["bound"] = s.bound;
 			out["who"] = static_cast<int>(s.who);
 			out["dimShader"] = s.dimShader;
+			out["dimmedGlows"] = DimmedGlowCount();
+			out["art"] = json::array();
+			for (const auto& [base, now] : ArtNow()) {
+				out["art"].push_back({ { "base", base }, { "now", now } });
+			}
+			out["hideChargeBar"] = s.hideChargeBar;
+			out["ownLight"] = s.ownLight;
+			out["ownLights"] = OwnLightCount();
 			a_write(a_sink, Dump(out).c_str());
 		}
 

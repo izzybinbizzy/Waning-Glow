@@ -24,8 +24,7 @@ namespace Glow
 	enum class Curve : int
 	{
 		kLinear = 0,
-		kGentle = 1,  // stays bright longer, drops near the end
-		kSteep = 2    // drops early
+		kGentle = 1  // stays bright longer, drops near the end (an old "steep", 2, reads as this)
 	};
 
 	enum class CoolTint : int
@@ -64,14 +63,7 @@ namespace Glow
 	[[nodiscard]] inline float ApplyCurve(Curve a_curve, float a_f) noexcept
 	{
 		a_f = Clamp01(a_f);
-		switch (a_curve) {
-		case Curve::kGentle:
-			return 1.0f - (1.0f - a_f) * (1.0f - a_f);
-		case Curve::kSteep:
-			return a_f * a_f;
-		default:
-			return a_f;
-		}
+		return a_curve == Curve::kGentle ? 1.0f - (1.0f - a_f) * (1.0f - a_f) : a_f;
 	}
 
 	// the steady brightness a fraction gives, before sputter, pulse and flare
@@ -318,11 +310,16 @@ namespace Glow
 		float r{ 1.0f }, g{ 1.0f }, b{ 1.0f };
 	};
 
-	// Waning Glow's own light, for a weapon no other mod lights (Settings::ownLight): only on a tracked hand that follows
-	// its charge (not a bound weapon's clock, not one left alone), with a weapon model to hang it on, and nothing else lit
-	[[nodiscard]] inline bool WantsOwnLight(bool a_on, bool a_active, bool a_bound, std::size_t a_otherLights, bool a_hasModel) noexcept
+	// Waning Glow's own light (Settings::ownLight): a simple light in the enchantment's colour, for a weapon no other mod
+	// lights. It stands down the moment another mod's light is found on the weapon, and waits kOwnLightDelay after a draw
+	// or a swap before it comes on, so a lighting mod that hangs its light a few frames late is never doubled.
+	inline constexpr float kOwnLightDelay = 0.5f;  // seconds a weapon must stay unlit by any other mod
+	inline constexpr float kOwnLightReach = 160.0f;
+
+	// a_unlitSeconds: how long the weapon has been tracked with no other mod's light on it (0 while one is)
+	[[nodiscard]] inline bool WantsOwnLight(bool a_on, bool a_bound, float a_unlitSeconds, bool a_hasModel) noexcept
 	{
-		return a_on && a_active && !a_bound && a_otherLights == 0 && a_hasModel;
+		return a_on && !a_bound && a_hasModel && a_unlitSeconds >= kOwnLightDelay;
 	}
 
 	// its color: the enchantment's element (1 fire, 2 frost, 3 shock), else its glow shader's color (0-255, when it has

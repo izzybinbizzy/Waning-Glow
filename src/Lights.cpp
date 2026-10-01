@@ -20,6 +20,9 @@
 //
 // When a light stops being under a tracked hand (weapon put away into the inventory, swapped, charge refilled on an
 // exempt weapon) it is put back as we found it, unless someone else has written it since.
+//
+// "Dim the enchantment glow" does the same to the glow itself: the enchantment shader's fill and rim alpha
+// (AfterShaderEffect) and the emissive scale of an enchantment art's glowing meshes (DimArt: VAER's swirls, EAE's art).
 
 #include "Plugin.h"
 
@@ -72,6 +75,15 @@ namespace Plugin
 			std::uint32_t                            frame{ 0 };
 		};
 
+		// an enchantment art's glowing mesh (VAER's swirls, EAE's art): its effect material's emissive scale, keyed by the
+		// material, since two meshes may share one (two keys on one material would each take the other's write as a base)
+		struct ArtSeen
+		{
+			RE::NiPointer<RE::BSShaderProperty> property;  // keeps the material alive while we hold its base
+			Glow::Scaled                        scale;
+			std::uint32_t                       frame{ 0 };
+		};
+
 		struct Root
 		{
 			RE::NiPointer<RE::NiAVObject> node;
@@ -102,6 +114,7 @@ namespace Plugin
 			std::vector<Root>        effectRoots;  // enchantment effects' attach roots, from the reference-effect hooks
 			std::size_t              lights{ 0 }, roots{ 0 };
 			std::size_t              others{ 0 };  // of `lights`, the ones another mod hung (not our own light)
+			float                    unlitFor{ 0.0f };  // seconds tracked with no other mod's light on the weapon
 			std::string              actorName;
 			std::string              weaponLabel, enchLabel;  // made on the main thread, for the Debug page and DevBench
 			float                    chargeAV{ -1.0f };       // the game's own item-charge value, read on the main thread
@@ -112,6 +125,7 @@ namespace Plugin
 		std::unordered_map<std::uint64_t, HandTrack>   gHands;
 		std::unordered_map<RE::NiPointLight*, LightSeen> gLights;
 		std::unordered_map<const void*, ShaderSeen>    gShaders;
+		std::unordered_map<const void*, ArtSeen>       gArt;
 		// how many hands are active, read without the lock by the effect hooks: every art and shader effect in the world
 		// calls them each frame, and with no enchanted weapon out they need not look up (RTTI) whose effect it is
 		std::atomic<std::size_t>                       gActiveHands{ 0 };
@@ -201,6 +215,38 @@ namespace Plugin
 			}
 		}
 
+		RE::BSEffectShaderMaterial* EffectMaterial(RE::BSShaderProperty* a_property)
+		{
+			auto* effect = netimmerse_cast<RE::BSEffectShaderProperty*>(a_property);
+			return effect ? static_cast<RE::BSEffectShaderMaterial*>(effect->GetBaseMaterial()) : nullptr;
+		}
+
+		void RestoreArt(ArtSeen& a_seen)
+		{
+			if (auto* material = a_seen.property ? EffectMaterial(a_seen.property.get()) : nullptr) {
+				material->baseColorScale = a_seen.scale.Restore(material->baseColorScale);
+			}
+		}
+
+		// every glowing mesh of an enchantment art takes the hand's brightness (never past its own: a pulse or flare can
+		// bring a dimmed glow back up, not over-brighten it)
+		void DimArt(RE::NiAVObject* a_model, float a_brightness)
+		{
+			const float k = std::clamp(a_brightness, 0.0f, 1.0f);
+			RE::BSVisit::TraverseScenegraphGeometries(a_model, [&](RE::BSGeometry* a_geometry) {
+				auto* shader = a_geometry ? a_geometry->GetGeometryRuntimeData().shaderProperty.get() : nullptr;
+				if (auto* material = EffectMaterial(shader)) {
+					auto [it, added] = gArt.try_emplace(material);
+					if (added) {
+						it->second.property.reset(shader);
+					}
+					it->second.frame = gFrame;
+					material->baseColorScale = it->second.scale.Apply(material->baseColorScale, k);
+				}
+				return RE::BSVisit::BSVisitControl::kContinue;
+			});
+		}
+
 		// every NiPointLight under a root takes this hand's numbers; returns how many (and adds to a_others the ones that are
 		// not our own light)
 		std::size_t ApplyUnder(RE::NiAVObject* a_root, const HandTrack& a_hand, std::size_t* a_others = nullptr)
@@ -211,6 +257,14 @@ namespace Plugin
 			}
 			RE::BSVisit::TraverseScenegraphLights(a_root, [&](RE::NiPointLight* a_light) {
 				if (a_light) {
+					if (!gLights.contains(a_light) && Config().debugLog) {
+						std::string chain;
+						for (auto* p = a_light->parent; p && chain.size() < 200; p = p->parent) {
+							chain += std::format(" < {}", p->name.empty() ? "(unnamed)" : p->name.c_str());
+						}
+						SKSE::log::info("  new light under {}: {}{}", a_root->name.empty() ? "(unnamed)" : a_root->name.c_str(),
+							a_light->name.empty() ? "(unnamed)" : a_light->name.c_str(), chain);
+					}
 					ApplyLight(a_light, a_hand);
 					++n;
 					if (a_others && a_light->name != kOwnLightName) {
@@ -222,7 +276,7 @@ namespace Plugin
 			return n;
 		}
 
-		void ApplyHand(RE::Actor* a_actor, HandTrack& a_hand, const Settings& a_settings)
+		void ApplyHand(RE::Actor* a_actor, HandTrack& a_hand, const Settings& a_settings, float a_delta)
 		{
 			a_hand.lights = a_hand.roots = a_hand.others = 0;
 			const auto* weapon = a_hand.reading.weapon;
@@ -243,9 +297,9 @@ namespace Plugin
 				a_hand.lights += ApplyUnder(root.node.get(), a_hand, &a_hand.others);
 			}
 			// our own light, on the third-person model (it lights the first-person view too), when nothing else lights it
-			const bool want = Glow::WantsOwnLight(a_settings.ownLight, true, a_hand.reading.bound, a_hand.others, parts[0] != nullptr);
-			if (auto* made = KeepOwnLight(Key(a_hand.actor, a_hand.left), want ? parts[0] : nullptr, a_hand.reading.ench,
-					static_cast<float>(a_settings.ownLightReach))) {
+			a_hand.unlitFor = a_hand.others ? 0.0f : a_hand.unlitFor + (std::max)(a_delta, 0.0f);
+			const bool want = Glow::WantsOwnLight(a_settings.ownLight, a_hand.reading.bound, a_hand.unlitFor, parts[0] != nullptr);
+			if (auto* made = KeepOwnLight(Key(a_hand.actor, a_hand.left), want ? parts[0] : nullptr, a_hand.reading.ench)) {
 				ApplyLight(made, a_hand);
 				++a_hand.lights;
 			}
@@ -293,6 +347,14 @@ namespace Plugin
 				if (gFrame - it->second.frame > kKeepFrames) {
 					RestoreShader(it->second);
 					it = gShaders.erase(it);
+				} else {
+					++it;
+				}
+			}
+			for (auto it = gArt.begin(); it != gArt.end();) {
+				if (gFrame - it->second.frame > kKeepFrames) {
+					RestoreArt(it->second);
+					it = gArt.erase(it);
 				} else {
 					++it;
 				}
@@ -355,6 +417,26 @@ namespace Plugin
 			SKSE::log::info("  {} light(s) on {} in all", n, a_actor->GetName());
 		}
 
+		// every light, shader and art mesh back as we found it, and every hand forgotten (switched off, a load)
+		void RestoreAll()
+		{
+			DropOwnLights();
+			for (auto& [light, seen] : gLights) {
+				RestoreLight(seen);
+			}
+			for (auto& [key, seen] : gShaders) {
+				RestoreShader(seen);
+			}
+			for (auto& [key, seen] : gArt) {
+				RestoreArt(seen);
+			}
+			gLights.clear();
+			gShaders.clear();
+			gArt.clear();
+			gHands.clear();
+			gActiveHands = 0;
+		}
+
 		void LogHand(const HandTrack& a_h, std::string_view a_what, bool a_on)
 		{
 			if (a_on) {
@@ -373,17 +455,7 @@ namespace Plugin
 		gEnabled = s.enabled;
 		gDimShader = s.dimShader;
 		if (!s.enabled) {
-			DropOwnLights();
-			for (auto& [light, seen] : gLights) {
-				RestoreLight(seen);
-			}
-			for (auto& [key, seen] : gShaders) {
-				RestoreShader(seen);
-			}
-			gLights.clear();
-			gShaders.clear();
-			gHands.clear();
-			gActiveHands = 0;
+			RestoreAll();
 			return;
 		}
 		auto&      preview = PreviewState();
@@ -447,6 +519,7 @@ namespace Plugin
 					h.weapon = h.reading.weapon;
 					h.instance = h.reading.instance;
 					h.glow.Reset(h.fraction, static_cast<std::uint32_t>(Key(h.actor, left) * 2654435761u));
+					h.unlitFor = 0.0f;
 					h.actorName = actor->GetName();
 					LogHand(h, "now tracked", s.debugLog);
 					if (s.debugLog) {
@@ -466,7 +539,7 @@ namespace Plugin
 				if ((h.out.pulsed || h.out.flared) && s.debugLog) {
 					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
-				ApplyHand(actor.get(), h, s);
+				ApplyHand(actor.get(), h, s, a_delta);
 			}
 		}
 		// a hand not read this frame (a follower dismissed, an actor unloaded) is no longer active: the effect hooks must not
@@ -516,6 +589,9 @@ namespace Plugin
 				found->frame = gFrame;
 			}
 			ApplyUnder(node, hand);  // right after Light Placer wrote this frame's values for this effect
+		}
+		if (nodes[1] && gDimShader.load(std::memory_order_relaxed)) {
+			DimArt(nodes[1], hand.out.brightness);  // the art's own glowing meshes: VAER's swirls, EAE's art
 		}
 	}
 
@@ -569,18 +645,8 @@ namespace Plugin
 	void ReleaseAll()
 	{
 		std::lock_guard lock(gLock);
-		DropOwnLights();
-		for (auto& [light, seen] : gLights) {
-			RestoreLight(seen);
-		}
-		for (auto& [key, seen] : gShaders) {
-			RestoreShader(seen);
-		}
-		gLights.clear();
-		gShaders.clear();
-		gHands.clear();
+		RestoreAll();
 		gActors.clear();
-		gActiveHands = 0;
 	}
 
 	std::vector<HandView> Snapshot()
@@ -623,6 +689,22 @@ namespace Plugin
 			if (seen.light) {
 				out.push_back({ seen.shownFade, seen.fade.base, seen.shownRadius, seen.fade.frozen });
 			}
+		}
+		return out;
+	}
+
+	std::size_t DimmedGlowCount()
+	{
+		std::lock_guard lock(gLock);
+		return gShaders.size() + gArt.size();
+	}
+
+	std::vector<std::pair<float, float>> ArtNow()
+	{
+		std::vector<std::pair<float, float>> out;
+		std::lock_guard                      lock(gLock);
+		for (const auto& [material, seen] : gArt) {
+			out.emplace_back(seen.scale.base, seen.scale.Written() ? seen.scale.written : seen.scale.base);
 		}
 		return out;
 	}
