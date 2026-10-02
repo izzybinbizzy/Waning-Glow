@@ -6,7 +6,7 @@ isn't enough.
 
 ## Where they go
 
-`Data\SKSE\Plugins\WaningGlow\*.json`. Files are read in name order (case ignored), and the rules in each file in the
+`Data\SKSE\Plugins\WaningGlow\*.json` (all but `Translation.json`, the menu's translation file). Files are read in name order (case ignored), and the rules in each file in the
 order written. **Every rule that matches a weapon applies, and a later rule's setting replaces an earlier one's.** So a
 player's `zz_mine.json` can override a mod's file. Comments (`//` and `/* */`) are allowed.
 

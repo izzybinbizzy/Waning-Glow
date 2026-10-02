@@ -194,7 +194,9 @@ namespace Plugin
 			// increment(ec), not a range-for: the range-for's ++ throws on an error reading the folder
 			for (auto it = std::filesystem::directory_iterator(kDir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
 				std::error_code fileEc;
-				if (it->is_regular_file(fileEc) && Lower(PathText(it->path().extension())) == ".json") {
+				// Translation.json is the menu's translation file (Translation.h), not a rule file
+				if (it->is_regular_file(fileEc) && Lower(PathText(it->path().extension())) == ".json" &&
+					Lower(PathText(it->path().filename())) != "translation.json") {
 					files.push_back(it->path());
 				}
 			}
