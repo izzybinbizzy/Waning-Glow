@@ -26,6 +26,7 @@
 //   Plugin.h       what they share      PCH.h  what they all include
 
 #include "Plugin.h"
+#include "Translation.h"
 
 namespace
 {
@@ -184,6 +185,7 @@ namespace
 		                         REX::W32::GetModuleHandleA("LightPlacer.dll") != nullptr;
 		SKSE::log::info("Light Placer {}", lightPlacer ? "is loaded" :
 		                                                 "is not loaded - only lights in weapon and art meshes will fade");
+		SKSE::log::info("{}", Translation::Load("Data/SKSE/Plugins/WaningGlow/Translation.json"));
 		Plugin::RegisterMenu();
 	}
 }
