@@ -93,6 +93,7 @@ namespace Plugin
 		struct HandTrack
 		{
 			RE::ActorHandle          actor;
+			std::uint64_t            key{ 0 };  // its own place in gHands (Key, or SpellKey for a spell hand)
 			const RE::Actor*         actorSeen{ nullptr };  // the actor as last read on the main thread: only compared, never used
 			bool                     left{ false };
 			bool                     spell{ false };  // a spell in hand (Spells.cpp): follows magicka, keyed apart (SpellKey)
@@ -178,7 +179,7 @@ namespace Plugin
 			if (a_found) {
 				seen.frame = gFrame;
 			}
-			seen.hand = Key(a_hand.actor, a_hand.left);
+			seen.hand = a_hand.key;  // a spell hand's own key: ReapplyAll must find the hand that scaled it, not the weapon hand
 			auto&       data = a_light->GetLightRuntimeData();
 			const auto& t = a_hand.verdict.tuning;
 			data.fade = seen.fade.Apply(data.fade, a_hand.out.brightness);
@@ -450,6 +451,7 @@ namespace Plugin
 		{
 			auto& h = gHands[SpellKey(a_actor->GetHandle(), a_left)];
 			h.actor = a_actor->GetHandle();
+			h.key = SpellKey(h.actor, a_left);
 			h.actorSeen = a_actor;
 			h.left = a_left;
 			h.spell = true;
@@ -552,6 +554,7 @@ namespace Plugin
 			for (const bool left : { false, true }) {
 				auto& h = gHands[Key(actor->GetHandle(), left)];
 				h.actor = actor->GetHandle();
+				h.key = Key(h.actor, left);
 				h.actorSeen = actor.get();
 				h.left = left;
 				h.frame = gFrame;
