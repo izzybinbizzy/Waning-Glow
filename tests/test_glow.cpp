@@ -876,9 +876,32 @@ namespace
 		CHECK(Plugin::SettingsText::Apply(s, "hidechargebar", 1) && s.hideChargeBar);
 	}
 
+	// spells and the kinds of magic: on by default; a kind off by element or by school is named; no school is never held back
+	void Kinds()
+	{
+		using Plugin::Element;
+		Plugin::Settings s;
+		CHECK(s.weapons && s.spells && s.staves && s.bound);
+		CHECK(Plugin::KindOff(s, { Element::kFire, 0 }).empty() && Plugin::KindOff(s, {}).empty());
+		CHECK(Plugin::SettingsText::Apply(s, "frost", 0) && Plugin::KindOff(s, { Element::kFrost, 0 }) == "Frost off");
+		CHECK(Plugin::KindOff(s, { Element::kFire, 0 }).empty());
+		CHECK(Plugin::SettingsText::Apply(s, "Illusion", 0) && Plugin::KindOff(s, { Element::kOther, 4 }) == "Illusion off");
+		CHECK(Plugin::KindOff(s, { Element::kOther, -1 }).empty());  // no school: only its element counts
+		CHECK(Plugin::SettingsText::Apply(s, "OtherEffects", 0) && !Plugin::KindOff(s, { Element::kOther, -1 }).empty());
+		CHECK(Plugin::KindOff(s, { Element::kOther, 9 }) == "OtherEffects off");  // a school out of range is no school
+		CHECK(Plugin::SettingsText::Apply(s, "Spells", 0) && !s.spells && Plugin::SettingsText::Apply(s, "weapons", 0) && !s.weapons);
+		std::ostringstream out;
+		Plugin::SettingsText::Write(out, s);
+		const auto text = out.str();
+		CHECK(text.find("Spells=0") != std::string::npos && text.find("Frost=0") != std::string::npos &&
+			  text.find("Illusion=0") != std::string::npos && text.find("Destruction=1") != std::string::npos);
+		CHECK(std::size(Plugin::kElementKeys) == std::size(s.elements) && std::size(Plugin::kSchoolKeys) == std::size(s.schools));
+	}
+
 int main()
 {
 	Curves();
+	Kinds();
 	TestOwnLight();
 	Levels();
 	FullChargeIsUntouched();

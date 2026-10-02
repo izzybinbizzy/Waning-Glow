@@ -58,10 +58,15 @@ namespace Plugin
 			default:
 				break;
 			}
+			// its glow shader's colour; when that is missing or black, the effect's own light's colour (2026-10-02: an
+			// enchantment with no element and no coloured shader - the Skull of Corruption - got a plain white light)
 			const auto* shader = base->data.enchantShader;
-			const auto  c = shader ? shader->data.fillTextureEffectColorKey1 : RE::Color{};
+			RE::Color   c = shader ? shader->data.fillTextureEffectColorKey1 : RE::Color{};
+			if (c.red == 0 && c.green == 0 && c.blue == 0 && base->data.light) {
+				c = base->data.light->data.color;
+			}
 			const Glow::Rgb fill{ static_cast<float>(c.red), static_cast<float>(c.green), static_cast<float>(c.blue) };
-			return Glow::OwnLightColor(element, shader ? &fill : nullptr);
+			return Glow::OwnLightColor(element, (shader || base->data.light) ? &fill : nullptr);
 		}
 
 		RE::ShadowSceneNode* Scene() { return RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]; }

@@ -2,7 +2,7 @@
 
 Copyright (C) 2026 izzydoingit. GPL-3.0-or-later, see `LICENSE.txt`.
 
-An enchanted weapon's glow fades with its charge. Settings are in SKSE Menu Framework's Mod Control Panel.
+An enchanted weapon's glow fades with its charge, and a spell's glow in the hand fades with the caster's magicka. Settings are in SKSE Menu Framework's Mod Control Panel.
 `include/WaningGlowAPI.h` is the API for other plugins; `docs/RULES.md` explains the rule files. `build.bat` builds it
 and runs the tests.
 

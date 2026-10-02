@@ -27,7 +27,7 @@ target("WaningGlow", function()
     add_rules("commonlibsse-ng.plugin", {
         name = "WaningGlow",
         author = "izzydoingit",
-        description = "Waning Glow - an enchanted weapon's lights follow its charge",
+        description = "Waning Glow: an enchanted weapon's lights follow its charge",
     })
     add_packages("nlohmann_json")
     -- the source is split by job (see the file map at the top of src/main.cpp); every .cpp in src is built

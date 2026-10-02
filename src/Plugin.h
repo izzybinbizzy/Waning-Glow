@@ -62,6 +62,20 @@ namespace Plugin
 	[[nodiscard]] std::size_t                     RuleFileCount();
 	[[nodiscard]] std::vector<std::string>        RuleProblems();  // a copy: the menu reads it while a reload may run
 
+	// ------------------------------------------------------------------ Spells.cpp: spells in hand
+	[[nodiscard]] Kind KindOf(const RE::MagicItem* a_item);  // its strongest effect's kind; Element::kOther, no school, for none
+	// this frame, every tracked actor's spell hands: their lights and glow follow the caster's magicka (from UpdateHands,
+	// under its lock)
+	struct SpellHand
+	{
+		const RE::SpellItem* spell{ nullptr };
+		float                fraction{ 1.0f };
+		float                current{ 0.0f }, max{ 0.0f };  // magicka
+		RE::NiAVObject*      nodes[2]{};                   // the hand's magic node, third and first person
+		RE::NiPointLight*    casterLight{ nullptr };       // the game's casting light (the effect's hand light)
+	};
+	[[nodiscard]] bool ReadSpellHand(RE::Actor* a_actor, bool a_left, SpellHand& a_out);
+
 	// ------------------------------------------------------------------ Charge.cpp: what a hand holds
 	struct Reading
 	{
@@ -87,7 +101,7 @@ namespace Plugin
 	struct HandView
 	{
 		std::string actor, weapon, enchantment, why;
-		bool        left{ false }, bound{ false }, exempt{ false };
+		bool        left{ false }, bound{ false }, exempt{ false }, spell{ false };
 		float       fraction{ 1.0f }, current{ 0.0f }, max{ 0.0f };
 		float       brightness{ 1.0f }, reach{ 1.0f }, cool{ 0.0f };
 		std::size_t lights{ 0 }, roots{ 0 };

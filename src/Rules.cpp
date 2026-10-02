@@ -236,9 +236,15 @@ namespace Plugin
 			if (a_weapon->IsBound()) {
 				v.mode = a_settings.bound ? Mode::kBound : Mode::kExempt;
 				v.why = a_settings.bound ? "bound weapon" : "bound weapons off";
+			} else if (!a_settings.weapons) {
+				v.mode = Mode::kExempt;
+				v.why = "weapons off";
 			} else if (a_weapon->IsStaff() && !a_settings.staves) {
 				v.mode = Mode::kExempt;
 				v.why = "staves off";
+			} else if (const auto off = KindOff(a_settings, KindOf(a_ench)); !off.empty()) {
+				v.mode = Mode::kExempt;
+				v.why = off;
 			}
 		}
 		const auto& match = MatchesFor(a_weapon, a_ench, a_settings.debugLog);

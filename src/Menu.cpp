@@ -145,16 +145,13 @@ namespace Plugin
 			ImGuiMCP::SameLine(column);
 			Toggle("Recharge flare", t.flare, "When a soul gem refills the weapon, the light swells past full and settles.", save);
 
-			GlowHeading("Which weapons");
-			{
-				static const char* const kWho[] = { "Player", "Player and followers" };
-				Choice("Whose weapons", s.who, kWho, 2,
-					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
-					"makes them spend it.",
-					save);
-			}
-			Toggle("Staves", s.staves, "Staves' lights follow their charge too.", save);
+			GlowHeading("What fades");
+			Toggle("Weapon enchantments", s.weapons, "An enchanted weapon's lights and glow follow its charge (staves too).", save);
 			ImGuiMCP::SameLine(column);
+			Toggle("Spells", s.spells,
+				"A spell in hand: the lights and glow on the casting hand follow your magicka, dimming as it runs low and "
+				"coming back as it refills.",
+				save);
 			Toggle("Bound weapons", s.bound,
 				"A bound weapon has no charge: its light stays full, then fades over the last seconds of its spell.", save);
 			ImGuiMCP::BeginDisabled(!s.bound);
@@ -167,6 +164,13 @@ namespace Plugin
 				Tip("Over how many of the spell's last seconds a bound weapon's light fades.");
 			}
 			ImGuiMCP::EndDisabled();
+			{
+				static const char* const kWho[] = { "Player", "Player and followers" };
+				Choice("Whose", s.who, kWho, 2,
+					"Followers' weapons usually never lose charge in the base game, so theirs stay full unless another mod "
+					"makes them spend it. Their spells follow their magicka.",
+					save);
+			}
 
 			GlowHeading("HUD");
 			Toggle("Hide the charge bar", s.hideChargeBar,
@@ -177,7 +181,8 @@ namespace Plugin
 			ImGuiMCP::EndDisabled();
 			ImGuiMCP::PopItemWidth();
 			ImGuiMCP::Spacing();
-			ImGuiMCP::TextDisabled("%s", "Finer tuning (reach, pulse and flare strength, cooling amount) lives in WaningGlow.ini and the rule files.");
+			ImGuiMCP::TextDisabled("%s", "Finer tuning (staves, each kind of magic by element and school, reach, pulse and flare strength, cooling "
+			                             "amount) lives in WaningGlow.ini and the rule files.");
 
 			// only what changed on this page goes back, key by key: a change DevBench made meanwhile is kept
 			for (const auto& k : SettingsText::kKeys) {
@@ -232,7 +237,7 @@ namespace Plugin
 
 			GlowHeading("Hands");
 			if (hands.empty()) {
-				ImGuiMCP::TextDisabled("%s", "No enchanted or bound weapon in hand right now.");
+				ImGuiMCP::TextDisabled("%s", "No enchanted or bound weapon, and no spell, in hand right now.");
 			}
 			for (std::size_t i = 0; i < hands.size(); ++i) {
 				const auto& h = hands[i];
@@ -244,7 +249,9 @@ namespace Plugin
 				if (h.exempt) {
 					ImGuiMCP::Text("left alone - %s", h.why.c_str());
 				} else {
-					if (h.bound) {
+					if (h.spell) {
+						ImGuiMCP::Text("magicka %.0f / %.0f - %.0f%%", h.current, h.max, h.fraction * 100.0f);
+					} else if (h.bound) {
 						ImGuiMCP::Text("%.1f s of %.0f s left - %.0f%%", h.current, h.max, h.fraction * 100.0f);
 					} else {
 						ImGuiMCP::Text("charge %.0f / %.0f - %.0f%%", h.current, h.max, h.fraction * 100.0f);
@@ -255,7 +262,7 @@ namespace Plugin
 						h.lights ? "" : " - nothing to dim: no lighting mod lights this weapon?");
 					ImGuiMCP::TextDisabled("decided by: %s", h.why.c_str());
 				}
-				if (h.chargeAV >= 0.0f && !h.bound) {
+				if (h.chargeAV >= 0.0f && !h.bound && !h.spell) {
 					ImGuiMCP::TextDisabled("the game's own %s actor value: %.1f", h.left ? "LeftItemCharge" : "RightItemCharge", h.chargeAV);
 				}
 				ImGuiMCP::Unindent();

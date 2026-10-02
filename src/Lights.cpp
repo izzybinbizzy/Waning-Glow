@@ -95,6 +95,7 @@ namespace Plugin
 			RE::ActorHandle          actor;
 			const RE::Actor*         actorSeen{ nullptr };  // the actor as last read on the main thread: only compared, never used
 			bool                     left{ false };
+			bool                     spell{ false };  // a spell in hand (Spells.cpp): follows magicka, keyed apart (SpellKey)
 			bool                     active{ false };
 			std::uint32_t            frame{ 0 };
 			const void*              weapon{ nullptr };
@@ -137,6 +138,9 @@ namespace Plugin
 		{
 			return (static_cast<std::uint64_t>(a_actor.native_handle()) << 1) | (a_left ? 1u : 0u);
 		}
+
+		// a hand holding a spell: never the same key as the weapon hand, which the effect hooks look up by Key
+		[[nodiscard]] std::uint64_t SpellKey(RE::ActorHandle a_actor, bool a_left) { return Key(a_actor, a_left) | (1ull << 63); }
 
 		// the weapon's 3D in a biped: a left-hand weapon sits in the shield slot, a right-hand one in its type's slot
 		RE::NiAVObject* WeaponPart(RE::Actor* a_actor, bool a_firstPerson, bool a_left, const RE::TESForm* a_weapon)
@@ -373,7 +377,7 @@ namespace Plugin
 				return nullptr;
 			}
 			for (const auto& [key, h] : gHands) {
-				if (h.active && h.left == a_left && h.actorSeen == a_actor) {
+				if (h.active && !h.spell && h.left == a_left && h.actorSeen == a_actor) {
 					return &h;
 				}
 			}
@@ -438,6 +442,82 @@ namespace Plugin
 			gArt.clear();
 			gHands.clear();
 			gActiveHands = 0;
+		}
+
+		// one spell hand, one frame (from UpdateHands, under the lock)
+		void UpdateSpellHand(RE::Actor* a_actor, bool a_left, const Settings& a_s, float a_delta, bool a_previewOn, bool a_previewToggled,
+			float a_previewFraction)
+		{
+			auto& h = gHands[SpellKey(a_actor->GetHandle(), a_left)];
+			h.actor = a_actor->GetHandle();
+			h.actorSeen = a_actor;
+			h.left = a_left;
+			h.spell = true;
+			h.frame = gFrame;
+			SpellHand sp;
+			if (!ReadSpellHand(a_actor, a_left, sp)) {
+				h.active = false;
+				h.weapon = nullptr;
+				h.reading = {};
+				return;
+			}
+			h.reading = {};
+			h.reading.tracked = true;
+			h.reading.current = sp.current;
+			h.reading.max = sp.max;
+			h.reading.fraction = sp.fraction;
+			if (const auto off = KindOff(a_s, KindOf(sp.spell)); !off.empty()) {
+				if (h.active || h.weapon != sp.spell) {
+					h.weaponLabel = Label(sp.spell);
+					h.verdict.why = off;
+					if (a_s.debugLog) {
+						SKSE::log::info("{} {} hand: spell left alone | {} - {}", a_actor->GetName(), a_left ? "left" : "right", h.weaponLabel, off);
+					}
+				}
+				h.active = false;
+				h.weapon = sp.spell;
+				return;
+			}
+			h.fraction = a_previewOn ? Glow::Clamp01(a_previewFraction) : sp.fraction;
+			if (a_previewToggled) {
+				h.glow.lastFraction = h.fraction;
+			}
+			h.verdict.tuning = a_s.tuning;
+			h.verdict.mode = Mode::kCharge;
+			h.verdict.why = "spell - follows magicka";
+			if (!h.active || h.weapon != sp.spell) {
+				h.weapon = sp.spell;
+				h.glow.Reset(h.fraction, static_cast<std::uint32_t>(SpellKey(h.actor, a_left) * 2654435761u));
+				h.actorName = a_actor->GetName();
+				h.weaponLabel = Label(sp.spell);
+				h.enchLabel = "(spell - follows magicka)";
+				if (a_s.debugLog) {
+					SKSE::log::info("{} {} hand: spell now tracked | {} - magicka {:.0f}/{:.0f}", h.actorName, a_left ? "left" : "right",
+						h.weaponLabel, sp.current, sp.max);
+				}
+			}
+			h.active = true;
+			// magicka spent on a cast is not a hit, nor magicka coming back a soul gem: no pulse, no flare
+			h.out = Glow::Step(a_s.tuning, h.glow, h.fraction, a_delta, true);
+			h.lights = h.roots = h.others = 0;
+			for (auto* node : sp.nodes) {
+				if (!node) {
+					continue;
+				}
+				++h.roots;
+				h.lights += ApplyUnder(node, h, &h.others);
+				if (a_s.dimShader) {
+					DimArt(node, h.out.brightness);  // the casting art's glow on the hand
+				}
+			}
+			if (sp.casterLight) {
+				// the game's casting light: it may hang under the magic node (then this is the same light again, which
+				// Glow::Scaled never compounds) or elsewhere
+				if (!gLights.contains(sp.casterLight) || gLights[sp.casterLight].frame != gFrame) {
+					++h.lights;
+				}
+				ApplyLight(sp.casterLight, h);
+			}
 		}
 
 		void LogHand(const HandTrack& a_h, std::string_view a_what, bool a_on)
@@ -543,6 +623,14 @@ namespace Plugin
 					LogHand(h, h.out.pulsed ? "spent charge (pulse)" : "recharged (flare)", true);
 				}
 				ApplyHand(actor.get(), h, s, a_delta);
+			}
+		}
+		// the spells in hand: their lights and glow follow the caster's magicka
+		if (s.spells) {
+			for (auto& actor : gActors) {
+				for (const bool left : { false, true }) {
+					UpdateSpellHand(actor.get(), left, s, a_delta, previewOn, previewToggled, preview.fraction);
+				}
 			}
 		}
 		// a hand not read this frame (a follower dismissed, an actor unloaded) is no longer active: the effect hooks must not
@@ -667,6 +755,7 @@ namespace Plugin
 			v.enchantment = h.enchLabel;
 			v.why = h.verdict.why;
 			v.bound = h.reading.bound;
+			v.spell = h.spell;
 			v.exempt = !h.active;
 			v.fraction = h.fraction;
 			v.current = h.reading.current;
