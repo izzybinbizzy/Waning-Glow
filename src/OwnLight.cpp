@@ -36,37 +36,50 @@ namespace Plugin
 		std::atomic<std::size_t>               gCount{ 0 };  // gOwn's size, for the menu's thread
 		RE::NiPointer<RE::NiPointLight>        gMaster;
 
-		// the color our own light takes from the enchantment: its costliest effect's element, else its glow shader's color
+		// the color our own light takes from the enchantment's costliest effect: its element, else the most colourful of its
+		// glow shader's fill and edge and its own light (Glow::OwnLightColor), else what it drains
 		Glow::Rgb ColorOf(const RE::EnchantmentItem* a_ench)
 		{
+			using K = Glow::LightKind;
 			const auto* top = a_ench ? a_ench->GetCostliestEffectItem() : nullptr;
 			const auto* base = top ? top->baseEffect : nullptr;
 			if (!base) {
-				return Glow::OwnLightColor(0, nullptr);
+				return Glow::OwnLightColor(K::kNone, {});
 			}
-			int element = 0;
+			auto kind = K::kNone;
 			switch (base->data.resistVariable) {
 			case RE::ActorValue::kResistFire:
-				element = 1;
+				kind = K::kFire;
 				break;
 			case RE::ActorValue::kResistFrost:
-				element = 2;
+				kind = K::kFrost;
 				break;
 			case RE::ActorValue::kResistShock:
-				element = 3;
+				kind = K::kShock;
 				break;
 			default:
+				if (base->HasArchetype(RE::EffectSetting::Archetype::kSoulTrap)) {
+					kind = K::kSoulTrap;
+				} else if (base->data.primaryAV == RE::ActorValue::kMagicka) {
+					kind = K::kMagicka;
+				} else if (base->data.primaryAV == RE::ActorValue::kStamina) {
+					kind = K::kStamina;
+				} else if (base->data.primaryAV == RE::ActorValue::kHealth) {
+					kind = K::kHealth;
+				}
 				break;
 			}
-			// its glow shader's colour; when that is missing or black, the effect's own light's colour (2026-10-02: an
-			// enchantment with no element and no coloured shader - the Skull of Corruption - got a plain white light)
-			const auto* shader = base->data.enchantShader;
-			RE::Color   c = shader ? shader->data.fillTextureEffectColorKey1 : RE::Color{};
-			if (c.red == 0 && c.green == 0 && c.blue == 0 && base->data.light) {
-				c = base->data.light->data.color;
+			auto rgb = [](const RE::Color& c) { return Glow::Rgb{ static_cast<float>(c.red), static_cast<float>(c.green), static_cast<float>(c.blue) }; };
+			std::array<Glow::Rgb, 3> colors{};
+			std::size_t              n = 0;
+			if (const auto* shader = base->data.enchantShader) {
+				colors[n++] = rgb(shader->data.fillTextureEffectColorKey1);
+				colors[n++] = rgb(shader->data.edgeEffectColor);
 			}
-			const Glow::Rgb fill{ static_cast<float>(c.red), static_cast<float>(c.green), static_cast<float>(c.blue) };
-			return Glow::OwnLightColor(element, (shader || base->data.light) ? &fill : nullptr);
+			if (const auto* light = base->data.light) {
+				colors[n++] = rgb(light->data.color);
+			}
+			return Glow::OwnLightColor(kind, std::span(colors.data(), n));
 		}
 
 		RE::ShadowSceneNode* Scene() { return RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]; }

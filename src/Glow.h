@@ -18,6 +18,7 @@
 #include <bit>
 #include <cstdint>
 #include <numbers>
+#include <span>
 
 namespace Glow
 {
@@ -322,28 +323,55 @@ namespace Glow
 		return a_on && !a_bound && a_hasModel && a_unlitSeconds >= kOwnLightDelay;
 	}
 
-	// its color: the enchantment's element (1 fire, 2 frost, 3 shock), else its glow shader's color (0-255, when it has
-	// one that is not black), else a soft white
-	[[nodiscard]] inline Rgb OwnLightColor(int a_element, const Rgb* a_shader) noexcept
+	// what the enchantment does, for its colour: 1 fire, 2 frost, 3 shock (its element), 4 soul trap, 5 magicka,
+	// 6 stamina, 7 health (what it drains or absorbs)
+	enum class LightKind { kNone, kFire, kFrost, kShock, kSoulTrap, kMagicka, kStamina, kHealth };
+
+	// its color: the element; else the most colourful of its shader's and light's colours (0-255) - a vanilla weapon
+	// shader keeps a GREY fill (31,31,31) and its colour in the edge, and a grey scaled to full brightness is white
+	// (2026-10-03, his "white from the start"); else what it drains; else a soft white
+	[[nodiscard]] inline Rgb OwnLightColor(LightKind a_kind, std::span<const Rgb> a_colors) noexcept
 	{
-		switch (a_element) {
-		case 1:
+		switch (a_kind) {
+		case LightKind::kFire:
 			return { 1.0f, 0.45f, 0.15f };
-		case 2:
+		case LightKind::kFrost:
 			return { 0.45f, 0.7f, 1.0f };
-		case 3:
+		case LightKind::kShock:
 			return { 0.65f, 0.55f, 1.0f };
 		default:
 			break;
 		}
-		if (a_shader && std::isfinite(a_shader->r + a_shader->g + a_shader->b)) {
-			const float top = (std::max)({ a_shader->r, a_shader->g, a_shader->b });
-			if (top > 8.0f) {
-				// its hue at full brightness: a dim shader color still makes a light that shows
-				return { Clamp01(a_shader->r / top), Clamp01(a_shader->g / top), Clamp01(a_shader->b / top) };
+		constexpr float kMinSaturation = 0.2f;
+		const Rgb*      best = nullptr;
+		float           bestSat = kMinSaturation;
+		for (const auto& c : a_colors) {
+			if (!std::isfinite(c.r + c.g + c.b)) {
+				continue;
+			}
+			const float top = (std::max)({ c.r, c.g, c.b }), low = (std::min)({ c.r, c.g, c.b });
+			if (top > 8.0f && (top - low) / top >= bestSat) {
+				best = &c;
+				bestSat = (top - low) / top;
 			}
 		}
-		return { 0.9f, 0.9f, 1.0f };
+		if (best) {
+			// its hue at full brightness: a dim colour still makes a light that shows
+			const float top = (std::max)({ best->r, best->g, best->b });
+			return { Clamp01(best->r / top), Clamp01(best->g / top), Clamp01(best->b / top) };
+		}
+		switch (a_kind) {
+		case LightKind::kSoulTrap:
+			return { 0.62f, 0.4f, 1.0f };
+		case LightKind::kMagicka:
+			return { 0.35f, 0.55f, 1.0f };
+		case LightKind::kStamina:
+			return { 0.45f, 1.0f, 0.45f };
+		case LightKind::kHealth:
+			return { 1.0f, 0.35f, 0.35f };
+		default:
+			return { 0.9f, 0.9f, 1.0f };
+		}
 	}
 
 	// the colour a light cools toward: its own brightness in grey, or that brightness in a dull ember

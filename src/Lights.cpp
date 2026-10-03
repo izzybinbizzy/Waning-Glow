@@ -753,6 +753,7 @@ namespace Plugin
 			}
 			HandView v;
 			v.actor = h.actorName;
+			v.player = h.actorSeen && h.actorSeen == RE::PlayerCharacter::GetSingleton();  // a pointer compare, nothing read
 			v.left = h.left;
 			v.weapon = h.weaponLabel;
 			v.enchantment = h.enchLabel;

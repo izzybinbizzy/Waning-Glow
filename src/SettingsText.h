@@ -29,6 +29,7 @@
 //   Who=0                     0 the player, 1 the player and followers
 //   DimShader=1               the enchantment's glow (its shader and its art's swirls) follows the charge too
 //   HideChargeBar=0           the HUD's enchantment charge bar is hidden (vanilla HUD, SkyHUD, TrueHUD)
+//   HudGems=0                 a small glowing gem per hand on the HUD, full with the charge or magicka (needs SKSE Menu Framework)
 //   OwnLight=1                a weapon no other mod lights gets a simple light in its enchantment's colour
 //   DebugLog=0
 //   Fire=1 Frost=1 Shock=1 Absorb=1 SoulTrap=1 Paralyze=1 FearTurnBanish=1 OtherEffects=1
@@ -79,6 +80,7 @@ namespace Plugin
 		float        boundFadeSeconds{ 10.0f };
 		bool         dimShader{ true };  // the enchantment's glow shader and its art's swirls follow the charge too
 		bool         hideChargeBar{ false };
+		bool         hudGems{ false };   // Menu.cpp's HUD element: one charge gem per tracked hand of the player
 		bool         ownLight{ true };   // a weapon no other mod lights gets a light of our own (OwnLight.cpp)
 		bool         debugLog{ false };
 
@@ -183,6 +185,7 @@ namespace Plugin
 			{ "Who", [](const Settings& s) { return static_cast<int>(s.who); }, [](Settings& s, int v) { s.who = static_cast<Who>(std::clamp(v, 0, 1)); } },
 			{ "DimShader", [](const Settings& s) { return s.dimShader ? 1 : 0; }, [](Settings& s, int v) { s.dimShader = v != 0; } },
 			{ "HideChargeBar", [](const Settings& s) { return s.hideChargeBar ? 1 : 0; }, [](Settings& s, int v) { s.hideChargeBar = v != 0; } },
+			{ "HudGems", [](const Settings& s) { return s.hudGems ? 1 : 0; }, [](Settings& s, int v) { s.hudGems = v != 0; } },
 			{ "OwnLight", [](const Settings& s) { return s.ownLight ? 1 : 0; }, [](Settings& s, int v) { s.ownLight = v != 0; } },
 			{ "DebugLog", [](const Settings& s) { return s.debugLog ? 1 : 0; }, [](Settings& s, int v) { s.debugLog = v != 0; } },
 			{ "Fire", [](const Settings& s) { return s.elements[0] ? 1 : 0; }, [](Settings& s, int v) { s.elements[0] = v != 0; } },

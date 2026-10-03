@@ -101,7 +101,7 @@ namespace Plugin
 	struct HandView
 	{
 		std::string actor, weapon, enchantment, why;
-		bool        left{ false }, bound{ false }, exempt{ false }, spell{ false };
+		bool        left{ false }, bound{ false }, exempt{ false }, spell{ false }, player{ false };
 		float       fraction{ 1.0f }, current{ 0.0f }, max{ 0.0f };
 		float       brightness{ 1.0f }, reach{ 1.0f }, cool{ 0.0f };
 		std::size_t lights{ 0 }, roots{ 0 };

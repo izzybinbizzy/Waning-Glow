@@ -6,7 +6,8 @@
 // at once and live on the next frame (finer tuning stays in WaningGlow.ini and the rule files). Debug: the debug log,
 // each tracked hand's weapon, charge, the numbers on its lights and how many lights were found, plus the rule files and
 // their problems - what a bug report needs.
-// The look is RELight Spell Addon's: warm amber on the menu's dark, glowing headings, gold checks and grips.
+// The look is the shared MenuStyle.h in warm amber, with Waning Glow's glowing headings; an optional HUD element
+// shows one charge gem per hand of the player (HudGems).
 
 #ifndef WIN32_LEAN_AND_MEAN
 #	define WIN32_LEAN_AND_MEAN
@@ -18,6 +19,7 @@
 
 #include "SKSEMenuFramework.h"
 #include "Translation.h"
+#include "MenuStyle.h"
 
 namespace Plugin
 {
@@ -35,24 +37,20 @@ namespace Plugin
 			GlowStyle()
 			{
 				using namespace ImGuiMCP;
-				PushStyleColor(ImGuiCol_CheckMark, ImVec4{ 1.0f, 0.80f, 0.42f, 1.0f });
-				PushStyleColor(ImGuiCol_SliderGrab, ImVec4{ 1.0f, 0.74f, 0.38f, 0.90f });
-				PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{ 1.0f, 0.86f, 0.55f, 1.0f });
 				PushStyleColor(ImGuiCol_FrameBg, ImVec4{ 0.12f, 0.10f, 0.08f, 0.75f });
 				PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{ 0.30f, 0.21f, 0.10f, 0.75f });
 				PushStyleColor(ImGuiCol_Separator, ImVec4{ 1.0f, 0.78f, 0.45f, 0.22f });
-				PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
 			}
-			~GlowStyle()
-			{
-				ImGuiMCP::PopStyleVar(1);
-				ImGuiMCP::PopStyleColor(6);
-			}
+			~GlowStyle() { ImGuiMCP::PopStyleColor(3); }
 			GlowStyle(const GlowStyle&) = delete;
 			GlowStyle& operator=(const GlowStyle&) = delete;
-		};
 
-		void GlowHeading(const char* a_text)
+		private:
+			MenuStyle::Page page;  // the shared accent, rounding and hovers
+		};
+		namespace Icon = MenuStyle::Icon;
+
+		void GlowHeading(unsigned a_icon, const char* a_text)
 		{
 			using namespace ImGuiMCP;
 			Spacing();
@@ -64,7 +62,13 @@ namespace Plugin
 				IM_COL32(255, 186, 90, 0), IM_COL32(255, 186, 90, 0), IM_COL32(255, 186, 90, 46));
 			ImDrawListManager::AddLine(dl, ImVec2{ at.x, at.y + h }, ImVec2{ at.x + w * 0.55f, at.y + h }, IM_COL32(255, 205, 120, 110), 1.0f);
 			Dummy(ImVec2{ 0.0f, 3.0f });
-			TextColored(kGold, "  %s", T(a_text));
+			Text(" ");
+			SameLine(0.0f, 0.0f);
+			FontAwesome::PushSolid();
+			TextColored(kGold, "%s", FontAwesome::UnicodeToUtf8(a_icon).c_str());
+			FontAwesome::Pop();
+			SameLine();
+			TextColored(kGold, "%s", T(a_text));
 			Dummy(ImVec2{ 0.0f, 4.0f });
 		}
 
@@ -118,7 +122,7 @@ namespace Plugin
 			Toggle("Enabled", s.enabled, "Off: every weapon light and glow is put back exactly as the other mods set it.", save);
 			ImGuiMCP::BeginDisabled(!s.enabled);
 
-			GlowHeading("Fading");
+			GlowHeading(Icon::kSun, "Fading");
 			Percent("Brightness when empty", t.floor, 0, 50,
 				"What is left of the light at 0% charge. 0% puts it out; 10% (the default) keeps a faint glow so you can "
 				"tell the weapon is enchanted but spent.",
@@ -133,7 +137,7 @@ namespace Plugin
 				"like the lights.",
 				save);
 
-			GlowHeading("Nearly empty");
+			GlowHeading(Icon::kMoon, "Nearly empty");
 			Toggle("Sputter", t.sputter, "Below the level set here, the light sputters: short, irregular dips, deeper toward empty.", save);
 			ImGuiMCP::BeginDisabled(!t.sputter);
 			Percent("Sputter below", t.sputterBelow, 1, 50, "The charge level where the sputter starts.", save);
@@ -147,12 +151,12 @@ namespace Plugin
 			}
 			ImGuiMCP::EndDisabled();
 
-			GlowHeading("Moments");
+			GlowHeading(Icon::kBolt, "Moments");
 			Toggle("Hit pulse", t.pulse, "A quick flash when a hit spends charge.", save);
 			ImGuiMCP::SameLine(column);
 			Toggle("Recharge flare", t.flare, "When a soul gem refills the weapon, the light swells past full and settles.", save);
 
-			GlowHeading("What fades");
+			GlowHeading(Icon::kWand, "What fades");
 			Toggle("Weapon enchantments", s.weapons, "An enchanted weapon's lights and glow follow its charge (staves too).", save);
 			ImGuiMCP::SameLine(column);
 			Toggle("Spells", s.spells,
@@ -179,10 +183,14 @@ namespace Plugin
 					save);
 			}
 
-			GlowHeading("HUD");
+			GlowHeading(Icon::kDisplay, "HUD");
 			Toggle("Hide the charge bar", s.hideChargeBar,
 				"The HUD's enchantment charge bar is hidden: the weapon's light shows the charge instead. Works with the "
 				"vanilla HUD, SkyHUD and TrueHUD.",
+				save);
+			Toggle("Charge gems on the HUD", s.hudGems,
+				"A small glowing gem for each hand, bottom right: full while the weapon is charged (or your magicka is full), "
+				"dimming and emptying with it. Handy with the charge bar hidden.",
 				save);
 
 			ImGuiMCP::EndDisabled();
@@ -216,7 +224,7 @@ namespace Plugin
 				}
 			}
 
-			GlowHeading("Preview");
+			GlowHeading(Icon::kEye, "Preview");
 			auto& preview = PreviewState();
 			bool  on = preview.on;
 			if (ImGuiMCP::Checkbox(T("Pretend the charge is"), &on)) {
@@ -242,7 +250,7 @@ namespace Plugin
 			}
 			Tip("The swell a recharge makes, now.");
 
-			GlowHeading("Hands");
+			GlowHeading(Icon::kHand, "Hands");
 			if (hands.empty()) {
 				ImGuiMCP::TextDisabled("%s", T("No enchanted or bound weapon, and no spell, in hand right now."));
 			}
@@ -276,7 +284,7 @@ namespace Plugin
 				ImGuiMCP::PopID();
 			}
 
-			GlowHeading("Lights");
+			GlowHeading(Icon::kBulb, "Lights");
 			ImGuiMCP::Text(T("%zu light(s) being scaled, %zu of them Waning Glow's own; %zu glow(s) dimmed"), ScaledLightCount(), OwnLightCount(),
 				DimmedGlowCount());
 			if (const auto frozen = FrozenLightCount()) {
@@ -285,7 +293,7 @@ namespace Plugin
 					"and holds its base value; the light still fades, but check which other mod touches weapon lights.");
 			}
 
-			GlowHeading("Rule files");
+			GlowHeading(Icon::kBook, "Rule files");
 			ImGuiMCP::Text(T("%zu rule(s) from %zu file(s) in Data\\SKSE\\Plugins\\WaningGlow"), RuleCount(), RuleFileCount());
 			if (ImGuiMCP::Button(T("Reload rule files"))) {
 				// on the game's main thread, between frames: the per-frame pass reads the rules there
@@ -300,15 +308,52 @@ namespace Plugin
 		}
 	}
 
+	namespace
+	{
+		// the HUD gems: one per tracked hand of the player, bottom right above the vanilla bars; left hand first
+		void __stdcall RenderHud()
+		{
+			using namespace ImGuiMCP;
+			const auto s = Config();
+			if (!s.enabled || !s.hudGems) {
+				return;
+			}
+			auto hands = Snapshot();
+			std::erase_if(hands, [](const HandView& h) { return !h.player || h.exempt; });
+			if (hands.empty()) {
+				return;
+			}
+			std::ranges::sort(hands, {}, [](const HandView& h) { return !h.left; });
+			auto*       io = GetIO();
+			auto*       dl = GetForegroundDrawList();
+			const float r = 11.0f, gap = 30.0f;
+			const float right = io ? io->DisplaySize.x - 34.0f : 1880.0f, y = io ? io->DisplaySize.y - 200.0f : 880.0f;
+			const float x0 = right - gap * static_cast<float>(hands.size() - 1);
+			MenuStyle::HudPlate(dl, ImVec2(x0 - r - 8.0f, y - r - 8.0f), ImVec2(right + r + 8.0f, y + r + 8.0f));
+			for (std::size_t i = 0; i < hands.size(); ++i) {
+				const float  f = std::clamp(hands[i].fraction, 0.0f, 1.0f);
+				const ImVec2 c(x0 + gap * static_cast<float>(i), y);
+				// a dull ember when empty, warm gold when full; a soft halo grows with the charge
+				const int rr = 255, gg = static_cast<int>(110 + 110 * f), bb = static_cast<int>(40 + 80 * f);
+				ImDrawListManager::AddCircleFilled(dl, c, r + 6.0f * f, IM_COL32(rr, gg, bb, static_cast<int>(50 * f)), 24);
+				ImDrawListManager::AddCircleFilled(dl, c, r, IM_COL32(28, 20, 12, 220), 24);
+				ImDrawListManager::AddCircleFilled(dl, c, r * (0.25f + 0.75f * f), IM_COL32(rr, gg, bb, static_cast<int>(120 + 135 * f)), 24);
+				ImDrawListManager::AddCircle(dl, c, r, IM_COL32(255, 205, 120, 150), 24, 1.0f);
+			}
+		}
+	}
+
 	void RegisterMenu()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
 			SKSE::log::warn("SKSE Menu Framework is not installed, so there is no settings page; the settings file still applies");
 			return;
 		}
+		MenuStyle::gTheme = MenuStyle::MakeTheme(0xFFBE5A);  // warm amber
 		SKSEMenuFramework::SetSection(T("Waning Glow"));
 		SKSEMenuFramework::AddSectionItem(T("Settings"), RenderSettings);
 		SKSEMenuFramework::AddSectionItem(T("Debug"), RenderDebug);
+		SKSEMenuFramework::AddHudElement(RenderHud);
 		SKSE::log::info("settings pages added to SKSE Menu Framework {}", SKSEMenuFramework::GetMenuFrameworkVersion());
 	}
 }

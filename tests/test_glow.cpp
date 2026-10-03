@@ -857,20 +857,31 @@ namespace
 		CHECK(!Glow::WantsOwnLight(true, false, later * 0.5f, true));  // just drawn: a lighting mod may hang its light late
 		CHECK(!Glow::WantsOwnLight(true, false, later, false));        // no model to hang it on
 		CHECK(Plugin::Settings{}.ownLight && Plugin::Settings{}.dimShader && !Plugin::Settings{}.hideChargeBar);
-		const auto fire = Glow::OwnLightColor(1, nullptr);
+		using LK = Glow::LightKind;
+		const auto fire = Glow::OwnLightColor(LK::kFire, {});
 		CHECK(fire.r > fire.b);
-		const auto frost = Glow::OwnLightColor(2, nullptr);
+		const auto frost = Glow::OwnLightColor(LK::kFrost, {});
 		CHECK(frost.b > frost.r);
 		const Glow::Rgb dimGreen{ 10.0f, 60.0f, 20.0f };
-		const auto      g = Glow::OwnLightColor(0, &dimGreen);
+		const auto      g = Glow::OwnLightColor(LK::kNone, std::span(&dimGreen, 1));
 		CHECK(Near(g.g, 1.0f) && Near(g.r, 10.0f / 60.0f) && Near(g.b, 20.0f / 60.0f));
 		const Glow::Rgb black{ 0.0f, 0.0f, 0.0f };
-		const auto      w = Glow::OwnLightColor(0, &black);
+		const auto      w = Glow::OwnLightColor(LK::kNone, std::span(&black, 1));
 		CHECK(w.r > 0.8f && w.g > 0.8f && w.b > 0.8f);
 		const Glow::Rgb nan{ std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f };
-		const auto      n = Glow::OwnLightColor(0, &nan);
+		const auto      n = Glow::OwnLightColor(LK::kNone, std::span(&nan, 1));
 		CHECK(std::isfinite(n.r) && std::isfinite(n.g) && std::isfinite(n.b));
-		CHECK(Glow::OwnLightColor(1, &dimGreen).r == fire.r);  // the element comes first
+		CHECK(Glow::OwnLightColor(LK::kFire, std::span(&dimGreen, 1)).r == fire.r);  // the element comes first
+		// 2026-10-03 "white from the start": a vanilla weapon shader's grey fill (31,31,31) must not win over its coloured
+		// edge (EnchMagickaDamageFFContact: edge 45,63,134), and a grey alone falls to what it drains, never to white
+		const Glow::Rgb absorb[] = { { 31.0f, 31.0f, 31.0f }, { 45.0f, 63.0f, 134.0f } };
+		const auto      a = Glow::OwnLightColor(LK::kMagicka, absorb);
+		CHECK(Near(a.b, 1.0f) && a.r < 0.4f);
+		const Glow::Rgb greys[] = { { 31.0f, 31.0f, 31.0f }, { 232.0f, 232.0f, 247.0f } };
+		const auto      st = Glow::OwnLightColor(LK::kSoulTrap, greys);
+		CHECK(st.b > st.g + 0.3f);
+		const auto stam = Glow::OwnLightColor(LK::kStamina, std::span(greys, 1));
+		CHECK(stam.g > stam.r + 0.3f);
 		Plugin::Settings s;
 		CHECK(Plugin::SettingsText::Apply(s, "OwnLight", 0) && !s.ownLight);
 		CHECK(Plugin::SettingsText::Apply(s, "hidechargebar", 1) && s.hideChargeBar);
