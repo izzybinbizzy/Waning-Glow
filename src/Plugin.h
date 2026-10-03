@@ -64,6 +64,8 @@ namespace Plugin
 
 	// ------------------------------------------------------------------ Spells.cpp: spells in hand
 	[[nodiscard]] Kind KindOf(const RE::MagicItem* a_item);  // its strongest effect's kind; Element::kOther, no school, for none
+	// a soul trap effect: the Soul Trap archetype, or - as every vanilla one is - a Script effect whose editor ID says so
+	[[nodiscard]] bool IsSoulTrap(const RE::EffectSetting* a_effect);
 	// this frame, every tracked actor's spell hands: their lights and glow follow the caster's magicka (from UpdateHands,
 	// under its lock)
 	struct SpellHand

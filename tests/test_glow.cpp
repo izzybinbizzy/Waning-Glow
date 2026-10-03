@@ -882,6 +882,10 @@ namespace
 		CHECK(st.b > st.g + 0.3f);
 		const auto stam = Glow::OwnLightColor(LK::kStamina, std::span(greys, 1));
 		CHECK(stam.g > stam.r + 0.3f);
+		// a fear weapon whose shader another mod whitened (232,232,247 seen in game): the vanilla fear blue, never white
+		const auto fear = Glow::OwnLightColor(LK::kFear, greys);
+		CHECK(fear.b > fear.r + 0.4f);
+		CHECK(Glow::OwnLightColor(LK::kParalyze, greys).g > 0.9f);
 		Plugin::Settings s;
 		CHECK(Plugin::SettingsText::Apply(s, "OwnLight", 0) && !s.ownLight);
 		CHECK(Plugin::SettingsText::Apply(s, "hidechargebar", 1) && s.hideChargeBar);

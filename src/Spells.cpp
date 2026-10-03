@@ -15,6 +15,21 @@
 
 namespace Plugin
 {
+	// 2026-10-03, found testing every enchantment kind in game: Skyrim's own soul trap effects (SoulTrapFFActor,
+	// EnchSoulTrapFFContact) are SCRIPT effects, not the Soul Trap archetype, so the archetype alone missed every vanilla one
+	bool IsSoulTrap(const RE::EffectSetting* a_effect)
+	{
+		if (!a_effect) {
+			return false;
+		}
+		if (a_effect->GetArchetype() == RE::EffectArchetypes::ArchetypeID::kSoulTrap) {
+			return true;
+		}
+		auto id = EditorID(a_effect);
+		std::ranges::transform(id, id.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return id.find("soultrap") != std::string::npos;
+	}
+
 	Kind KindOf(const RE::MagicItem* a_item)
 	{
 		Kind        k;
@@ -35,6 +50,10 @@ namespace Plugin
 			k.element = Element::kShock;
 			break;
 		default:
+			if (IsSoulTrap(base)) {
+				k.element = Element::kSoulTrap;
+				break;
+			}
 			switch (base->GetArchetype()) {
 			case A::kAbsorb:
 				k.element = Element::kAbsorb;

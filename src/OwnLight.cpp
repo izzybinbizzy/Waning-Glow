@@ -58,8 +58,13 @@ namespace Plugin
 				kind = K::kShock;
 				break;
 			default:
-				if (base->HasArchetype(RE::EffectSetting::Archetype::kSoulTrap)) {
+				if (IsSoulTrap(base)) {
 					kind = K::kSoulTrap;
+				} else if (base->HasArchetype(RE::EffectSetting::Archetype::kDemoralize) || base->HasArchetype(RE::EffectSetting::Archetype::kTurnUndead) ||
+						   base->HasArchetype(RE::EffectSetting::Archetype::kBanish)) {
+					kind = K::kFear;
+				} else if (base->HasArchetype(RE::EffectSetting::Archetype::kParalysis)) {
+					kind = K::kParalyze;
 				} else if (base->data.primaryAV == RE::ActorValue::kMagicka) {
 					kind = K::kMagicka;
 				} else if (base->data.primaryAV == RE::ActorValue::kStamina) {
@@ -79,7 +84,16 @@ namespace Plugin
 			if (const auto* light = base->data.light) {
 				colors[n++] = rgb(light->data.color);
 			}
-			return Glow::OwnLightColor(kind, std::span(colors.data(), n));
+			const auto out = Glow::OwnLightColor(kind, std::span(colors.data(), n));
+			if (Config().debugLog) {
+				std::string seen;
+				for (std::size_t i = 0; i < n; ++i) {
+					seen += std::format(" [{:.0f},{:.0f},{:.0f}]", colors[i].r, colors[i].g, colors[i].b);
+				}
+				SKSE::log::info("  own light colour for {}: kind {}, candidates{} -> [{:.2f},{:.2f},{:.2f}]", Label(base),
+					static_cast<int>(kind), seen.empty() ? " none" : seen, out.r, out.g, out.b);
+			}
+			return out;
 		}
 
 		RE::ShadowSceneNode* Scene() { return RE::BSShaderManager::State::GetSingleton().shadowSceneNode[0]; }

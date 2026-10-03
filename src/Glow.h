@@ -324,8 +324,8 @@ namespace Glow
 	}
 
 	// what the enchantment does, for its colour: 1 fire, 2 frost, 3 shock (its element), 4 soul trap, 5 magicka,
-	// 6 stamina, 7 health (what it drains or absorbs)
-	enum class LightKind { kNone, kFire, kFrost, kShock, kSoulTrap, kMagicka, kStamina, kHealth };
+	// 6 stamina, 7 health (what it drains or absorbs), 8 fear / turn undead / banish, 9 paralysis
+	enum class LightKind { kNone, kFire, kFrost, kShock, kSoulTrap, kMagicka, kStamina, kHealth, kFear, kParalyze };
 
 	// its color: the element; else the most colourful of its shader's and light's colours (0-255) - a vanilla weapon
 	// shader keeps a GREY fill (31,31,31) and its colour in the edge, and a grey scaled to full brightness is white
@@ -369,6 +369,10 @@ namespace Glow
 			return { 0.45f, 1.0f, 0.45f };
 		case LightKind::kHealth:
 			return { 1.0f, 0.35f, 0.35f };
+		case LightKind::kFear:  // fear, turn undead, banish: the vanilla fear shader's edge (45,63,134) - a mod may whiten it
+			return { 0.34f, 0.47f, 1.0f };
+		case LightKind::kParalyze:
+			return { 0.55f, 1.0f, 0.5f };
 		default:
 			return { 0.9f, 0.9f, 1.0f };
 		}
